@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+.toast-progress,
+.toast-progress-error {
+  height: 3px;
+  width: 100%;
+  transform-origin: left;
+  animation: toast-timeline 5s linear forwards;
+}
+
+.toast-progress {
+  background: #2563eb;
+}
+
+.toast-progress-error {
+  background: #dc2626;
+}
+
+@keyframes toast-timeline {
+  from {
+    transform: scaleX(1);
+  }
+
+  to {
+    transform: scaleX(0);
+  }
+}

@@ -1,0 +1,78 @@
+import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PassportStrategy } from "@nestjs/passport";
+import { AuthSessionStatus, UserStatus } from "@prisma/client";
+import { ExtractJwt, Strategy } from "passport-jwt";
+import { PrismaService } from "../prisma/prisma.service";
+import { AuthUser, JwtAccessPayload } from "./auth.types";
+
+@Injectable()
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor(
+    config: ConfigService,
+    private readonly prisma: PrismaService
+  ) {
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: config.get<string>("JWT_ACCESS_SECRET") ?? "dev-only-change-me"
+    });
+  }
+
+  async validate(payload: JwtAccessPayload): Promise<AuthUser> {
+    if (!payload.sid) {
+      throw new UnauthorizedException("Session id is missing.");
+    }
+
+    const session = await this.prisma.authSession.findUnique({
+      where: { id: payload.sid }
+    });
+
+    if (
+      !session ||
+      session.userId !== payload.sub ||
+      session.status !== AuthSessionStatus.ACTIVE ||
+      session.expiresAt <= new Date()
+    ) {
+      throw new UnauthorizedException("Session is invalid or expired.");
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      include: {
+        campus: true,
+        teacherAssignments: {
+          where: { isActive: true },
+          include: { permissions: true }
+        }
+      }
+    });
+
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException("User no longer exists or is inactive.");
+    }
+
+    return {
+      id: user.id,
+      sessionId: session.id,
+      type: user.type,
+      campusId: user.campusId,
+      campusGroupId: user.campus?.groupId,
+      email: user.email,
+      fullName: user.fullName,
+      assignments: user.teacherAssignments.map((assignment) => ({
+        id: assignment.id,
+        role: assignment.role,
+        campusGroupId: assignment.campusGroupId ?? undefined,
+        campusId: assignment.campusId ?? undefined,
+        programId: assignment.programId ?? undefined,
+        branchId: assignment.branchId ?? undefined,
+        batchId: assignment.batchId ?? undefined,
+        classId: assignment.classId ?? undefined,
+        sectionId: assignment.sectionId ?? undefined,
+        subjectId: assignment.subjectId ?? undefined,
+        permissions: assignment.permissions.filter((grant) => grant.allowed).map((grant) => grant.action)
+      }))
+    };
+  }
+}

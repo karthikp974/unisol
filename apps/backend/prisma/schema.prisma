@@ -1,0 +1,361 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum CampusIsolationPolicy {
+  SHARED
+  ISOLATED
+}
+
+enum ProgramDurationUnit {
+  YEAR
+}
+
+enum UserType {
+  ADMIN
+  TEACHER
+  STUDENT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum AuthSessionStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum StructureStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum TeacherRoleKind {
+  STPO
+  CTPO
+  HTPO
+}
+
+enum PermissionAction {
+  VIEW_ADMIN_PORTAL
+  VIEW_TEACHER_PORTAL
+  VIEW_STUDENT_PORTAL
+  VIEW_DB_PORTAL
+  MANAGE_STRUCTURE
+  MANAGE_USERS
+  ASSIGN_TEACHER_ROLES
+  VIEW_STUDENTS
+  VIEW_ATTENDANCE
+  MARK_ATTENDANCE
+  VIEW_FEES
+  MARK_FEES
+  MANAGE_TIMETABLE
+  MANAGE_TEAMS
+  UPLOAD_RESULTS
+}
+
+model CampusGroup {
+  id              String                @id @default(cuid())
+  name            String                @unique
+  isolationPolicy CampusIsolationPolicy
+  campuses        Campus[]
+  roleAssignments TeacherRoleAssignment[]
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+}
+
+model Campus {
+  id        String      @id @default(cuid())
+  code      String      @unique
+  name      String
+  groupId   String
+  group     CampusGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  programs  Program[]
+  users     User[]
+  roleAssignments TeacherRoleAssignment[]
+  status    StructureStatus @default(ACTIVE)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([groupId])
+  @@index([status])
+}
+
+model Program {
+  id            String              @id @default(cuid())
+  campusId      String
+  campus        Campus              @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  code          String
+  name          String
+  durationValue Int
+  durationUnit  ProgramDurationUnit @default(YEAR)
+  semesters     Int
+  branches      Branch[]
+  roleAssignments TeacherRoleAssignment[]
+  status        StructureStatus      @default(ACTIVE)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  @@unique([campusId, code])
+  @@index([campusId])
+  @@index([status])
+}
+
+model Branch {
+  id        String   @id @default(cuid())
+  programId String
+  program   Program  @relation(fields: [programId], references: [id], onDelete: Restrict)
+  code      String
+  name      String
+  batches   Batch[]
+  subjects  Subject[]
+  roleAssignments TeacherRoleAssignment[]
+  status    StructureStatus @default(ACTIVE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([programId, code])
+  @@index([programId])
+  @@index([status])
+}
+
+model Batch {
+  id        String          @id @default(cuid())
+  branchId  String
+  branch    Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  startYear Int
+  endYear   Int
+  classes   AcademicClass[]
+  roleAssignments TeacherRoleAssignment[]
+  status    StructureStatus @default(ACTIVE)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@unique([branchId, startYear, endYear])
+  @@index([branchId])
+  @@index([status])
+}
+
+model AcademicClass {
+  id             String           @id @default(cuid())
+  batchId        String
+  batch          Batch            @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  yearNumber     Int
+  semesterNumber Int
+  label          String
+  sections       Section[]
+  roleAssignments TeacherRoleAssignment[]
+  status         StructureStatus @default(ACTIVE)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([batchId, semesterNumber])
+  @@index([batchId])
+  @@index([status])
+}
+
+model Section {
+  id              String                  @id @default(cuid())
+  classId         String
+  class           AcademicClass           @relation(fields: [classId], references: [id], onDelete: Restrict)
+  name            String
+  capacity        Int?
+  students        StudentProfile[]
+  roleAssignments TeacherRoleAssignment[]
+  status          StructureStatus           @default(ACTIVE)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@unique([classId, name])
+  @@index([classId])
+  @@index([status])
+}
+
+model User {
+  id                  String                  @id @default(cuid())
+  campusId            String?
+  campus              Campus?                 @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  email               String                  @unique
+  username            String?                 @unique
+  passwordHash        String
+  fullName            String
+  phone               String?
+  type                UserType
+  status              UserStatus              @default(ACTIVE)
+  teacherProfile      TeacherProfile?
+  studentProfile      StudentProfile?
+  teacherAssignments  TeacherRoleAssignment[]
+  permissionGrants    PermissionGrant[]       @relation("PermissionGrantUser")
+  createdPermissions  PermissionGrant[]       @relation("PermissionGrantCreatedBy")
+  authSessions        AuthSession[]
+  auditLogs           AuditLog[]
+  idempotencyKeys     IdempotencyKey[]
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  @@index([campusId, type, status])
+}
+
+model AuthSession {
+  id               String            @id @default(cuid())
+  userId           String
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String            @unique
+  status           AuthSessionStatus @default(ACTIVE)
+  userAgent        String?
+  ipAddress        String?
+  expiresAt        DateTime
+  lastUsedAt       DateTime?
+  revokedAt        DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([userId, status])
+  @@index([expiresAt])
+}
+
+model TeacherProfile {
+  id             String                  @id @default(cuid())
+  userId         String                  @unique
+  user           User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employeeCode   String                  @unique
+  designation    String?
+  joinedOn       DateTime?
+  version        Int                     @default(1)
+  assignments    TeacherRoleAssignment[]
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+}
+
+model StudentProfile {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sectionId    String
+  section      Section  @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  rollNumber   String   @unique
+  admissionNo  String?  @unique
+  currentStatus UserStatus @default(ACTIVE)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([sectionId, rollNumber])
+}
+
+model Subject {
+  id              String                  @id @default(cuid())
+  branchId        String
+  branch          Branch                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  code            String
+  name            String
+  semesterNumber  Int
+  roleAssignments TeacherRoleAssignment[]
+  status          StructureStatus           @default(ACTIVE)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@unique([branchId, code])
+  @@index([branchId, semesterNumber])
+  @@index([status])
+}
+
+model TeacherRoleAssignment {
+  id               String          @id @default(cuid())
+  teacherProfileId String
+  teacherProfile   TeacherProfile  @relation(fields: [teacherProfileId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role             TeacherRoleKind
+  campusGroupId    String?
+  campusGroup      CampusGroup?    @relation(fields: [campusGroupId], references: [id], onDelete: Restrict)
+  campusId         String?
+  campus           Campus?         @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  programId        String?
+  program          Program?        @relation(fields: [programId], references: [id], onDelete: Restrict)
+  branchId         String?
+  branch           Branch?         @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  batchId          String?
+  batch            Batch?          @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  classId          String?
+  class            AcademicClass?  @relation(fields: [classId], references: [id], onDelete: Restrict)
+  sectionId        String?
+  section          Section?        @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  subjectId        String?
+  subject          Subject?        @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  permissions      PermissionGrant[]
+  startsAt         DateTime        @default(now())
+  endsAt           DateTime?
+  isActive         Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([userId, role, isActive])
+  @@index([campusGroupId, campusId, programId, branchId, batchId, classId, sectionId])
+}
+
+model PermissionGrant {
+  id                  String                 @id @default(cuid())
+  assignmentId         String?
+  assignment           TeacherRoleAssignment? @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  userId               String?
+  user                 User?                  @relation("PermissionGrantUser", fields: [userId], references: [id], onDelete: SetNull)
+  action               PermissionAction
+  allowed              Boolean                @default(true)
+  createdById          String?
+  createdBy            User?                  @relation("PermissionGrantCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt            DateTime               @default(now())
+
+  @@index([assignmentId, action])
+}
+
+model IdempotencyKey {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  route       String
+  requestHash String
+  response    Json?
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([userId, route])
+  @@index([expiresAt])
+}
+
+model BackgroundJobRecord {
+  id          String   @id @default(cuid())
+  queueName   String
+  jobName     String
+  externalId  String?  @unique
+  status      String
+  payload     Json
+  result      Json?
+  error       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([queueName, status])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, action])
+  @@index([entity, entityId])
+}

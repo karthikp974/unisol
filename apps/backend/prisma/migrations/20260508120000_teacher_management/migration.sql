@@ -1,0 +1,2 @@
+ALTER TABLE "TeacherProfile" ADD COLUMN "joinedOn" TIMESTAMP(3);
+ALTER TABLE "TeacherProfile" ADD COLUMN "version" INTEGER NOT NULL DEFAULT 1;

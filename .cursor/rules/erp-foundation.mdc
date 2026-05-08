@@ -1,0 +1,17 @@
+---
+description: College ERP foundation, permission, performance, and safety rules
+alwaysApply: true
+---
+
+# College ERP Rules
+
+- Keep the academic hierarchy as `Campus -> Program -> Branch -> Batch -> Class -> Section -> Users`.
+- KIET and KIEK may share data through their campus group. KIEW must stay isolated from KIET/KIEK.
+- Teacher access is contextual: `STPO`, `CTPO`, and `HTPO` can exist together on one teacher account, always with a scope.
+- Never rely on frontend-only permissions. Every protected backend endpoint must check user type, action, and scope.
+- Large lists must use pagination, search, and filters. Do not render thousands of rows directly.
+- Mutating actions must prevent duplicates with disabled UI states and backend idempotency/unique constraints where relevant.
+- Heavy work such as PDF parsing, bulk promotion, imports, exports, and reports must run through background jobs.
+- Every user action should produce a top-right toast with a 5 second progress timeline.
+- Build module-by-module: define behavior, extend schema, add backend checks/tests, then build frontend.
+- Do not add attendance, fees, results, timetable, or reports until that module is explicitly requested.
