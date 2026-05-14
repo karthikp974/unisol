@@ -1,6 +1,7 @@
 import { FormEvent, ReactElement, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth/auth-context";
 import { SafeActionButton } from "../shared/SafeActionButton";
+import { SearchableSelect } from "../shared/SearchableSelect";
 import { useToast } from "../shared/toast-context";
 import {
   AcademicClass,
@@ -35,10 +36,22 @@ type StructureRow = {
   archivePath: string;
 };
 
-export function StructureManagement() {
+type StructureManagementProps = {
+  initialTab?: StructureTab;
+  visibleTabs?: StructureTab[];
+  title?: string;
+  description?: string;
+};
+
+export function StructureManagement({
+  initialTab = "campuses",
+  visibleTabs,
+  title = "Structure Management",
+  description = "Manage Campus to Program to Branch to Batch to Class to Section."
+}: StructureManagementProps = {}) {
   const { authFetch } = useAuth();
   const { showToast } = useToast();
-  const [activeTab, setActiveTab] = useState<StructureTab>("campuses");
+  const [activeTab, setActiveTab] = useState<StructureTab>(initialTab);
   const [campusGroups, setCampusGroups] = useState<CampusGroup[]>([]);
   const [campuses, setCampuses] = useState<Campus[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
@@ -95,7 +108,7 @@ export function StructureManagement() {
     try {
       const [groups, campusPage, programPage, branchPage, batchPage, classPage, sectionPage, subjectPage] = await Promise.all([
         fetchJson<CampusGroup[]>("/api/core/campus-groups"),
-        fetchJson<PaginatedResponse<Campus>>("/api/core/campuses?pageSize=100"),
+        fetchJson<PaginatedResponse<Campus>>("/api/campuses?pageSize=100"),
         fetchJson<PaginatedResponse<Program>>("/api/core/programs?pageSize=100"),
         fetchJson<PaginatedResponse<Branch>>("/api/core/branches?pageSize=100"),
         fetchJson<PaginatedResponse<Batch>>("/api/core/batches?pageSize=100"),
@@ -147,21 +160,32 @@ export function StructureManagement() {
     }),
     [batches.length, branches.length, campuses.length, classes.length, programs.length, sections.length, subjects.length]
   );
+  const visibleStructureTabs = useMemo(
+    () => tabs.filter((tab) => !visibleTabs || visibleTabs.includes(tab.id)),
+    [visibleTabs]
+  );
+
+  useEffect(() => {
+    if (!visibleStructureTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab(visibleStructureTabs[0]?.id ?? initialTab);
+    }
+  }, [activeTab, initialTab, visibleStructureTabs]);
 
   return (
     <section className="rounded-2xl border bg-white p-5 shadow-sm">
       <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-xl font-bold text-slate-950">Structure Management</h2>
-          <p className="mt-1 text-sm text-slate-500">Manage Campus to Program to Branch to Batch to Class to Section.</p>
+          <h2 className="text-xl font-bold text-slate-950">{title}</h2>
+          <p className="mt-1 text-sm text-slate-500">{description}</p>
         </div>
         <SafeActionButton run={() => loadStructure().then(() => showToast("Structure refreshed"))} busyLabel="Refreshing...">
           Refresh
         </SafeActionButton>
       </div>
 
+      {visibleStructureTabs.length > 1 ? (
       <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
-        {tabs.map((tab) => (
+        {visibleStructureTabs.map((tab) => (
           <button
             key={tab.id}
             type="button"
@@ -174,6 +198,7 @@ export function StructureManagement() {
           </button>
         ))}
       </div>
+      ) : null}
 
       {isLoading ? <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">Loading structure...</p> : null}
 
@@ -184,11 +209,7 @@ export function StructureManagement() {
             <form className="grid gap-3 md:grid-cols-4" onSubmit={(event) => void submit(event, createCampus)}>
               <input className={inputClass} placeholder="Code" value={campusForm.code} onChange={(event) => setCampusForm({ ...campusForm, code: event.target.value })} required />
               <input className={inputClass} placeholder="Name" value={campusForm.name} onChange={(event) => setCampusForm({ ...campusForm, name: event.target.value })} required />
-              <select className={inputClass} value={campusForm.groupId} onChange={(event) => setCampusForm({ ...campusForm, groupId: event.target.value })} required>
-                {campusGroups.map((group) => (
-                  <option key={group.id} value={group.id}>{group.name}</option>
-                ))}
-              </select>
+              <SearchableSelect value={campusForm.groupId} options={campusGroups.map((group) => [group.id, group.name])} onChange={(groupId) => setCampusForm({ ...campusForm, groupId })} required />
               <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Add Campus</button>
             </form>
           }
@@ -206,9 +227,7 @@ export function StructureManagement() {
           title="Programs"
           form={
             <form className="grid gap-3 md:grid-cols-6" onSubmit={(event) => void submit(event, createProgram)}>
-              <select className={inputClass} value={programForm.campusId} onChange={(event) => setProgramForm({ ...programForm, campusId: event.target.value })} required>
-                {campuses.map((campus) => <option key={campus.id} value={campus.id}>{campus.code}</option>)}
-              </select>
+              <SearchableSelect value={programForm.campusId} options={campuses.map((campus) => [campus.id, campus.code])} onChange={(campusId) => setProgramForm({ ...programForm, campusId })} required />
               <input className={inputClass} placeholder="Code" value={programForm.code} onChange={(event) => setProgramForm({ ...programForm, code: event.target.value })} required />
               <input className={inputClass} placeholder="Name" value={programForm.name} onChange={(event) => setProgramForm({ ...programForm, name: event.target.value })} required />
               <input className={inputClass} type="number" min={1} value={programForm.durationValue} onChange={(event) => setProgramForm({ ...programForm, durationValue: Number(event.target.value) })} required />
@@ -230,9 +249,7 @@ export function StructureManagement() {
           title="Branches"
           form={
             <form className="grid gap-3 md:grid-cols-4" onSubmit={(event) => void submit(event, createBranch)}>
-              <select className={inputClass} value={branchForm.programId} onChange={(event) => setBranchForm({ ...branchForm, programId: event.target.value })} required>
-                {programs.map((program) => <option key={program.id} value={program.id}>{program.campus?.code} / {program.code}</option>)}
-              </select>
+              <SearchableSelect value={branchForm.programId} options={programs.map((program) => [program.id, `${program.campus?.code} / ${program.code}`])} onChange={(programId) => setBranchForm({ ...branchForm, programId })} required />
               <input className={inputClass} placeholder="Code" value={branchForm.code} onChange={(event) => setBranchForm({ ...branchForm, code: event.target.value })} required />
               <input className={inputClass} placeholder="Name" value={branchForm.name} onChange={(event) => setBranchForm({ ...branchForm, name: event.target.value })} required />
               <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Add Branch</button>
@@ -253,9 +270,7 @@ export function StructureManagement() {
             title="Batches"
             form={
               <form className="grid gap-3 md:grid-cols-4" onSubmit={(event) => void submit(event, createBatch)}>
-                <select className={inputClass} value={batchForm.branchId} onChange={(event) => setBatchForm({ ...batchForm, branchId: event.target.value })} required>
-                  {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.program?.campus?.code} / {branch.program?.code} / {branch.code}</option>)}
-                </select>
+                <SearchableSelect value={batchForm.branchId} options={branches.map((branch) => [branch.id, `${branch.program?.campus?.code} / ${branch.program?.code} / ${branch.code}`])} onChange={(branchId) => setBatchForm({ ...batchForm, branchId })} required />
                 <input className={inputClass} type="number" value={batchForm.startYear} onChange={(event) => setBatchForm({ ...batchForm, startYear: Number(event.target.value) })} required />
                 <input className={inputClass} type="number" value={batchForm.endYear} onChange={(event) => setBatchForm({ ...batchForm, endYear: Number(event.target.value) })} required />
                 <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Add Batch</button>
@@ -271,9 +286,7 @@ export function StructureManagement() {
           <div className="rounded-xl border bg-slate-50 p-4">
             <h3 className="mb-3 text-sm font-bold text-slate-700">Generate Classes and Sections</h3>
             <form className="grid gap-3 md:grid-cols-4" onSubmit={(event) => void submit(event, generateClasses)}>
-              <select className={inputClass} value={generationForm.batchId} onChange={(event) => setGenerationForm({ ...generationForm, batchId: event.target.value })} required>
-                {batches.map((batch) => <option key={batch.id} value={batch.id}>{batch.branch?.code} / {batch.startYear}-{batch.endYear}</option>)}
-              </select>
+              <SearchableSelect value={generationForm.batchId} options={batches.map((batch) => [batch.id, `${batch.branch?.code} / ${batch.startYear}-${batch.endYear}`])} onChange={(batchId) => setGenerationForm({ ...generationForm, batchId })} required />
               <input className={inputClass} placeholder="Sections e.g. A,B,C" value={generationForm.sectionNames} onChange={(event) => setGenerationForm({ ...generationForm, sectionNames: event.target.value })} />
               <input className={inputClass} type="number" min={1} value={generationForm.sectionCapacity} onChange={(event) => setGenerationForm({ ...generationForm, sectionCapacity: Number(event.target.value) })} />
               <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Generate</button>
@@ -287,9 +300,7 @@ export function StructureManagement() {
           title="Classes"
           form={
             <form className="grid gap-3 md:grid-cols-5" onSubmit={(event) => void submit(event, createClass)}>
-              <select className={inputClass} value={classForm.batchId} onChange={(event) => setClassForm({ ...classForm, batchId: event.target.value })} required>
-                {batches.map((batch) => <option key={batch.id} value={batch.id}>{batch.branch?.code} / {batch.startYear}-{batch.endYear}</option>)}
-              </select>
+              <SearchableSelect value={classForm.batchId} options={batches.map((batch) => [batch.id, `${batch.branch?.code} / ${batch.startYear}-${batch.endYear}`])} onChange={(batchId) => setClassForm({ ...classForm, batchId })} required />
               <input className={inputClass} type="number" min={1} value={classForm.yearNumber} onChange={(event) => setClassForm({ ...classForm, yearNumber: Number(event.target.value) })} required />
               <input className={inputClass} type="number" min={1} value={classForm.semesterNumber} onChange={(event) => setClassForm({ ...classForm, semesterNumber: Number(event.target.value) })} required />
               <input className={inputClass} value={classForm.label} onChange={(event) => setClassForm({ ...classForm, label: event.target.value })} required />
@@ -310,9 +321,7 @@ export function StructureManagement() {
           title="Sections"
           form={
             <form className="grid gap-3 md:grid-cols-4" onSubmit={(event) => void submit(event, createSection)}>
-              <select className={inputClass} value={sectionForm.classId} onChange={(event) => setSectionForm({ ...sectionForm, classId: event.target.value })} required>
-                {classes.map((item) => <option key={item.id} value={item.id}>{item.batch?.branch?.code} / Sem {item.semesterNumber}</option>)}
-              </select>
+              <SearchableSelect value={sectionForm.classId} options={classes.map((item) => [item.id, `${item.batch?.branch?.code} / Sem ${item.semesterNumber}`])} onChange={(classId) => setSectionForm({ ...sectionForm, classId })} required />
               <input className={inputClass} value={sectionForm.name} onChange={(event) => setSectionForm({ ...sectionForm, name: event.target.value })} required />
               <input className={inputClass} type="number" min={1} value={sectionForm.capacity} onChange={(event) => setSectionForm({ ...sectionForm, capacity: Number(event.target.value) })} />
               <button className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white">Add Section</button>
@@ -332,9 +341,7 @@ export function StructureManagement() {
           title="Subjects"
           form={
             <form className="grid gap-3 md:grid-cols-5" onSubmit={(event) => void submit(event, createSubject)}>
-              <select className={inputClass} value={subjectForm.branchId} onChange={(event) => setSubjectForm({ ...subjectForm, branchId: event.target.value })} required>
-                {branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.program?.campus?.code} / {branch.program?.code} / {branch.code}</option>)}
-              </select>
+              <SearchableSelect value={subjectForm.branchId} options={branches.map((branch) => [branch.id, `${branch.program?.campus?.code} / ${branch.program?.code} / ${branch.code}`])} onChange={(branchId) => setSubjectForm({ ...subjectForm, branchId })} required />
               <input className={inputClass} placeholder="Code" value={subjectForm.code} onChange={(event) => setSubjectForm({ ...subjectForm, code: event.target.value })} required />
               <input className={inputClass} placeholder="Subject name" value={subjectForm.name} onChange={(event) => setSubjectForm({ ...subjectForm, name: event.target.value })} required />
               <input className={inputClass} type="number" min={1} value={subjectForm.semesterNumber} onChange={(event) => setSubjectForm({ ...subjectForm, semesterNumber: Number(event.target.value) })} required />

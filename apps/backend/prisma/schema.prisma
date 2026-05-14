@@ -58,8 +58,145 @@ enum PermissionAction {
   VIEW_FEES
   MARK_FEES
   MANAGE_TIMETABLE
+  VIEW_RESULTS
+  VIEW_APPLICATIONS
+  MANAGE_APPLICATIONS
+  VIEW_ANNOUNCEMENTS
+  MANAGE_ANNOUNCEMENTS
+  VIEW_REPORTS
+  MANAGE_PROMOTIONS
+  VIEW_TEAMS
   MANAGE_TEAMS
   UPLOAD_RESULTS
+  MANAGE_FEEDBACK
+  VIEW_FEEDBACK_ANALYTICS
+  SUBMIT_FEEDBACK
+}
+
+enum StudentTeamStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum StudentTeamMemberRole {
+  LEADER
+  MEMBER
+}
+
+enum PasswordResetTokenStatus {
+  ACTIVE
+  USED
+  EXPIRED
+}
+
+enum StudentApplicationStatus {
+  PENDING
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  CLOSED
+}
+
+enum StudentApplicationCategory {
+  GENERAL
+  ATTENDANCE
+  FEES
+  RESULTS
+  CERTIFICATE
+  LEAVE
+  OTHER
+}
+
+enum AnnouncementAudience {
+  ALL
+  STUDENTS
+  TEACHERS
+  BOTH
+}
+
+enum AnnouncementPriority {
+  NORMAL
+  IMPORTANT
+  URGENT
+}
+
+enum AnnouncementTeacherScope {
+  NONE
+  INSTITUTION
+  CAMPUS
+  DEPARTMENT
+  BRANCH
+}
+
+enum AnnouncementStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum FeedbackFormType {
+  GUEST_LECTURE
+  SEMESTER_EXAM
+  WORKSHOP
+  SEMINAR
+  ACADEMIC_EVENT
+  OTHER
+}
+
+enum FeedbackQuestionType {
+  RATING_SCALE
+  YES_NO
+  MULTIPLE_CHOICE
+  PARAGRAPH
+}
+
+enum FeedbackFormStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum AttendanceEntryStatus {
+  PRESENT
+  ABSENT
+}
+
+enum AttendanceCorrectionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum FeePaymentMode {
+  CASH
+  UPI
+  CARD
+  BANK_TRANSFER
+  CHEQUE
+  OTHER
+}
+
+enum FeePaymentStatus {
+  ACTIVE
+  REVERSED
+}
+
+enum StudentFeePaymentStatus {
+  PAID
+  UNPAID
+  PARTIAL
+}
+
+enum TimetableSlotStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum ResultEntryStatus {
+  PASS
+  FAIL
+  ABSENT
+  WITHHELD
 }
 
 model CampusGroup {
@@ -80,12 +217,22 @@ model Campus {
   group     CampusGroup @relation(fields: [groupId], references: [id], onDelete: Restrict)
   programs  Program[]
   users     User[]
+  sections  Section[]
   roleAssignments TeacherRoleAssignment[]
+  attendanceSessions AttendanceSession[]
+  attendanceHolidays AttendanceHoliday[]
+  feeStructures FeeStructure[]
+  timetableSlots TimetableSlot[]
+  announcements Announcement[]
+  teacherTargetAnnouncements Announcement[] @relation("AnnouncementTeacherCampus")
+  feedbackForms FeedbackForm[]
+  isActive  Boolean     @default(true)
   status    StructureStatus @default(ACTIVE)
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
   @@index([groupId])
+  @@index([isActive])
   @@index([status])
 }
 
@@ -100,31 +247,52 @@ model Program {
   semesters     Int
   branches      Branch[]
   roleAssignments TeacherRoleAssignment[]
+  attendanceSessions AttendanceSession[]
+  feeStructures FeeStructure[]
+  timetableSlots TimetableSlot[]
+  announcements Announcement[]
+  teacherTargetAnnouncements Announcement[] @relation("AnnouncementTeacherProgram")
+  feedbackForms FeedbackForm[]
   status        StructureStatus      @default(ACTIVE)
+  isArchived    Boolean             @default(false)
+  archivedAt    DateTime?
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 
   @@unique([campusId, code])
   @@index([campusId])
   @@index([status])
+  @@index([isArchived])
 }
 
 model Branch {
-  id        String   @id @default(cuid())
-  programId String
-  program   Program  @relation(fields: [programId], references: [id], onDelete: Restrict)
-  code      String
-  name      String
+  id             String   @id @default(cuid())
+  programId      String
+  program        Program  @relation(fields: [programId], references: [id], onDelete: Restrict)
+  code           String
+  name           String
+  /// Academic program length in years for this branch (each year = 2 semesters). Drives semester pair generation.
+  durationYears  Int      @default(4)
   batches   Batch[]
+  classes   AcademicClass[]
   subjects  Subject[]
   roleAssignments TeacherRoleAssignment[]
+  attendanceSessions AttendanceSession[]
+  feeStructures FeeStructure[]
+  timetableSlots TimetableSlot[]
+  announcements Announcement[]
+  teacherTargetAnnouncements Announcement[] @relation("AnnouncementTeacherBranch")
+  feedbackForms FeedbackForm[]
   status    StructureStatus @default(ACTIVE)
+  isArchived Boolean @default(false)
+  archivedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([programId, code])
   @@index([programId])
   @@index([status])
+  @@index([isArchived])
 }
 
 model Batch {
@@ -133,50 +301,88 @@ model Batch {
   branch    Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
   startYear Int
   endYear   Int
+  batchCode String?         @unique
   classes   AcademicClass[]
+  subjects  Subject[]
   roleAssignments TeacherRoleAssignment[]
+  attendanceSessions AttendanceSession[]
+  feeStructures FeeStructure[]
+  timetableSlots TimetableSlot[]
+  announcements Announcement[]
+  feedbackForms FeedbackForm[]
   status    StructureStatus @default(ACTIVE)
+  isArchived Boolean        @default(false)
+  archivedAt DateTime?
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt
 
   @@unique([branchId, startYear, endYear])
   @@index([branchId])
   @@index([status])
+  @@index([isArchived])
 }
 
 model AcademicClass {
   id             String           @id @default(cuid())
+  branchId       String
+  branch         Branch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
   batchId        String
   batch          Batch            @relation(fields: [batchId], references: [id], onDelete: Restrict)
   yearNumber     Int
   semesterNumber Int
   label          String
+  code           String?          @unique
   sections       Section[]
   roleAssignments TeacherRoleAssignment[]
+  attendanceSessions AttendanceSession[]
+  feeStructures FeeStructure[]
+  timetableSlots TimetableSlot[]
+  announcements Announcement[]
+  feedbackForms FeedbackForm[]
   status         StructureStatus @default(ACTIVE)
+  isArchived     Boolean         @default(false)
+  archivedAt     DateTime?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
 
   @@unique([batchId, semesterNumber])
+  @@index([branchId])
   @@index([batchId])
   @@index([status])
+  @@index([isArchived])
 }
 
 model Section {
   id              String                  @id @default(cuid())
+  campusId        String
+  campus          Campus                  @relation(fields: [campusId], references: [id], onDelete: Restrict)
   classId         String
   class           AcademicClass           @relation(fields: [classId], references: [id], onDelete: Restrict)
   name            String
+  code            String?                 @unique
   capacity        Int?
   students        StudentProfile[]
+  subjectAssignments SectionSubjectAssignment[]
   roleAssignments TeacherRoleAssignment[]
+  attendanceSessions AttendanceSession[]
+  feeStructures FeeStructure[]
+  timetableSlots TimetableSlot[]
+  announcements Announcement[]
+  feedbackForms FeedbackForm[]
+  promotionsFrom StudentPromotionHistory[] @relation("PromotionFromSection")
+  promotionsTo StudentPromotionHistory[]   @relation("PromotionToSection")
+  studentTeams StudentTeam[]
   status          StructureStatus           @default(ACTIVE)
+  isArchived      Boolean                   @default(false)
+  archivedAt      DateTime?
   createdAt       DateTime                @default(now())
   updatedAt       DateTime                @updatedAt
 
   @@unique([classId, name])
+  @@index([campusId])
   @@index([classId])
   @@index([status])
+  @@index([isArchived])
 }
 
 model User {
@@ -196,8 +402,22 @@ model User {
   permissionGrants    PermissionGrant[]       @relation("PermissionGrantUser")
   createdPermissions  PermissionGrant[]       @relation("PermissionGrantCreatedBy")
   authSessions        AuthSession[]
+  passwordResetTokens PasswordResetToken[]
   auditLogs           AuditLog[]
   idempotencyKeys     IdempotencyKey[]
+  markedAttendanceSessions AttendanceSession[] @relation("AttendanceMarkedBy")
+  attendanceCorrectionRequests AttendanceCorrectionRequest[] @relation("AttendanceCorrectionRequestedBy")
+  feePayments         FeePayment[]            @relation("FeePaymentReceivedBy")
+  feeReversals        FeePayment[]            @relation("FeePaymentReversedBy")
+  createdFeeStructures FeeStructure[]          @relation("FeeStructureCreatedBy")
+  createdTimetableSlots TimetableSlot[]        @relation("TimetableCreatedBy")
+  createdResultEntries ResultEntry[]           @relation("ResultEntryCreatedBy")
+  reviewedApplications StudentApplication[]    @relation("ApplicationReviewedBy")
+  createdAnnouncements Announcement[]          @relation("AnnouncementCreatedBy")
+  announcementReads  AnnouncementRead[]
+  createdFeedbackForms FeedbackForm[]         @relation("FeedbackFormCreatedBy")
+  promotedStudents StudentPromotionHistory[]   @relation("PromotionPerformedBy")
+  createdStudentTeams StudentTeam[]            @relation("StudentTeamCreatedBy")
   createdAt           DateTime                @default(now())
   updatedAt           DateTime                @updatedAt
 
@@ -222,6 +442,21 @@ model AuthSession {
   @@index([expiresAt])
 }
 
+model PasswordResetToken {
+  id        String                   @id @default(cuid())
+  userId    String
+  user      User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String                   @unique
+  status    PasswordResetTokenStatus @default(ACTIVE)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime                 @default(now())
+  updatedAt DateTime                 @updatedAt
+
+  @@index([userId, status])
+  @@index([expiresAt])
+}
+
 model TeacherProfile {
   id             String                  @id @default(cuid())
   userId         String                  @unique
@@ -230,9 +465,14 @@ model TeacherProfile {
   designation    String?
   joinedOn       DateTime?
   version        Int                     @default(1)
+  isArchived     Boolean                 @default(false)
+  archivedAt     DateTime?
   assignments    TeacherRoleAssignment[]
+  timetableSlots TimetableSlot[]
   createdAt      DateTime                @default(now())
   updatedAt      DateTime                @updatedAt
+
+  @@index([isArchived])
 }
 
 model StudentProfile {
@@ -242,29 +482,555 @@ model StudentProfile {
   sectionId    String
   section      Section  @relation(fields: [sectionId], references: [id], onDelete: Restrict)
   rollNumber   String   @unique
-  admissionNo  String?  @unique
+  dateOfBirth  DateTime?
   currentStatus UserStatus @default(ACTIVE)
+  isArchived   Boolean  @default(false)
+  archivedAt   DateTime?
+  attendanceEntries AttendanceEntry[]
+  feePayments FeePayment[]
+  feeAssignments StudentFeeAssignment[]
+  resultEntries ResultEntry[]
+  applications StudentApplication[]
+  promotionHistory StudentPromotionHistory[]
+  teamMemberships StudentTeamMember[]
+  feedbackSubmissions FeedbackSubmission[]
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@index([sectionId, rollNumber])
+  @@index([isArchived])
 }
 
 model Subject {
   id              String                  @id @default(cuid())
   branchId        String
   branch          Branch                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  code            String
+  batchId         String?
+  batch           Batch?                  @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  code            String                  @unique
   name            String
   semesterNumber  Int
   roleAssignments TeacherRoleAssignment[]
+  sectionAssignments SectionSubjectAssignment[]
+  attendanceSessions AttendanceSession[]
+  timetableSlots TimetableSlot[]
+  resultEntries ResultEntry[]
+  syllabi         Syllabus[]
   status          StructureStatus           @default(ACTIVE)
+  isArchived      Boolean                   @default(false)
+  archivedAt      DateTime?
   createdAt       DateTime                @default(now())
   updatedAt       DateTime                @updatedAt
 
-  @@unique([branchId, code])
   @@index([branchId, semesterNumber])
+  @@index([batchId])
   @@index([status])
+  @@index([isArchived])
+}
+
+model Syllabus {
+  id         String         @id @default(cuid())
+  subjectId  String
+  subject    Subject        @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  units      SyllabusUnit[]
+  isArchived Boolean        @default(false)
+  archivedAt DateTime?
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  @@unique([subjectId, isArchived])
+  @@index([subjectId])
+  @@index([isArchived])
+}
+
+model SyllabusUnit {
+  id         String   @id @default(cuid())
+  syllabusId String
+  syllabus   Syllabus @relation(fields: [syllabusId], references: [id], onDelete: Restrict)
+  unitTitle  String
+  unitOrder  Int
+  isArchived Boolean  @default(false)
+  archivedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([syllabusId, unitOrder])
+  @@index([syllabusId])
+  @@index([isArchived])
+}
+
+model SectionSubjectAssignment {
+  id        String   @id @default(cuid())
+  sectionId String
+  section   Section  @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  subjectId String
+  subject   Subject  @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([sectionId, subjectId])
+  @@index([sectionId, isActive])
+  @@index([subjectId, isActive])
+}
+
+model FeeHead {
+  id          String          @id @default(cuid())
+  code        String          @unique
+  name        String
+  description String?
+  isActive    Boolean         @default(true)
+  structures  FeeStructure[]
+  payments    FeePayment[]
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}
+
+model FeeStructure {
+  id          String       @id @default(cuid())
+  feeHeadId   String
+  feeHead     FeeHead      @relation(fields: [feeHeadId], references: [id], onDelete: Restrict)
+  campusId    String
+  campus      Campus       @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  programId   String?
+  program     Program?     @relation(fields: [programId], references: [id], onDelete: Restrict)
+  branchId    String?
+  branch      Branch?      @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  batchId     String?
+  batch       Batch?       @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  classId     String?
+  class       AcademicClass? @relation(fields: [classId], references: [id], onDelete: Restrict)
+  sectionId   String?
+  section     Section?     @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  feeName     String?
+  amount      Decimal      @db.Decimal(12, 2)
+  remarks     String?
+  dueDate     DateTime?
+  createdById String?
+  createdBy   User?        @relation("FeeStructureCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  isActive    Boolean      @default(true)
+  isArchived  Boolean      @default(false)
+  archivedAt  DateTime?
+  assignments StudentFeeAssignment[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([campusId, programId, branchId, batchId, classId, sectionId])
+  @@index([feeHeadId, isActive])
+  @@index([isArchived])
+  @@index([createdById])
+}
+
+model StudentFeeAssignment {
+  id               String                  @id @default(cuid())
+  studentId        String
+  student          StudentProfile          @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  feeStructureId   String
+  feeStructure     FeeStructure            @relation(fields: [feeStructureId], references: [id], onDelete: Restrict)
+  paymentStatus    StudentFeePaymentStatus @default(UNPAID)
+  payments         FeePayment[]
+  assignedAt       DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  @@unique([studentId, feeStructureId])
+  @@index([studentId, paymentStatus])
+  @@index([feeStructureId, paymentStatus])
+}
+
+model FeePayment {
+  id               String           @id @default(cuid())
+  receiptNo        String           @unique
+  studentProfileId String
+  studentProfile   StudentProfile   @relation(fields: [studentProfileId], references: [id], onDelete: Restrict)
+  studentFeeAssignmentId String?
+  studentFeeAssignment   StudentFeeAssignment? @relation(fields: [studentFeeAssignmentId], references: [id], onDelete: Restrict)
+  feeHeadId        String
+  feeHead          FeeHead          @relation(fields: [feeHeadId], references: [id], onDelete: Restrict)
+  amount           Decimal          @db.Decimal(12, 2)
+  paymentMode      FeePaymentMode
+  paidAt           DateTime         @default(now())
+  note             String?
+  receivedById     String
+  receivedBy       User             @relation("FeePaymentReceivedBy", fields: [receivedById], references: [id], onDelete: Restrict)
+  status           FeePaymentStatus @default(ACTIVE)
+  reversedAt       DateTime?
+  reversedById     String?
+  reversedBy       User?            @relation("FeePaymentReversedBy", fields: [reversedById], references: [id], onDelete: Restrict)
+  reversalReason   String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([studentProfileId, status])
+  @@index([studentFeeAssignmentId, status])
+  @@index([feeHeadId, status])
+  @@index([paidAt])
+}
+
+model TimetableSlot {
+  id               String              @id @default(cuid())
+  campusId         String
+  campus           Campus              @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  programId        String
+  program          Program             @relation(fields: [programId], references: [id], onDelete: Restrict)
+  branchId         String
+  branch           Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  batchId          String
+  batch            Batch               @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  classId          String
+  class            AcademicClass       @relation(fields: [classId], references: [id], onDelete: Restrict)
+  sectionId        String
+  section          Section             @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  subjectId        String?
+  subject          Subject?            @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  teacherProfileId String?
+  teacherProfile   TeacherProfile?     @relation(fields: [teacherProfileId], references: [id], onDelete: Restrict)
+  dayOfWeek        Int
+  startTime        String
+  endTime          String
+  room             String?
+  status           TimetableSlotStatus @default(ACTIVE)
+  createdById      String
+  createdBy        User                @relation("TimetableCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@unique([sectionId, dayOfWeek, startTime, endTime])
+  @@index([teacherProfileId, dayOfWeek, status])
+  @@index([classId, sectionId, status])
+}
+
+model ResultEntry {
+  id               String            @id @default(cuid())
+  studentProfileId String
+  studentProfile   StudentProfile    @relation(fields: [studentProfileId], references: [id], onDelete: Restrict)
+  subjectId        String
+  subject          Subject           @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  semesterNumber   Int
+  examType         String            @default("SEMESTER")
+  internals        Decimal?          @db.Decimal(5, 2)
+  externals        Decimal?          @db.Decimal(5, 2)
+  totalMarks       Decimal?          @db.Decimal(5, 2)
+  grade            String?
+  credits          Decimal?          @db.Decimal(4, 2)
+  status           ResultEntryStatus
+  createdById      String
+  createdBy        User              @relation("ResultEntryCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@unique([studentProfileId, subjectId, examType])
+  @@index([studentProfileId, semesterNumber])
+  @@index([subjectId, status])
+}
+
+model StudentApplication {
+  id               String                     @id @default(cuid())
+  studentProfileId String
+  studentProfile   StudentProfile             @relation(fields: [studentProfileId], references: [id], onDelete: Restrict)
+  category         StudentApplicationCategory @default(GENERAL)
+  subject          String
+  message          String
+  status           StudentApplicationStatus   @default(PENDING)
+  response         String?
+  reviewedById     String?
+  reviewedBy       User?                      @relation("ApplicationReviewedBy", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedAt       DateTime?
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+
+  @@index([studentProfileId, status])
+  @@index([category, status])
+  @@index([reviewedById])
+}
+
+enum PromotionType {
+  STANDARD_NEXT_SEMESTER
+  INDIVIDUAL_REASSIGNMENT
+}
+
+model StudentPromotionHistory {
+  id               String         @id @default(cuid())
+  studentProfileId String
+  studentProfile   StudentProfile @relation(fields: [studentProfileId], references: [id], onDelete: Restrict)
+  fromSectionId    String
+  fromSection      Section        @relation("PromotionFromSection", fields: [fromSectionId], references: [id], onDelete: Restrict)
+  toSectionId      String
+  toSection        Section        @relation("PromotionToSection", fields: [toSectionId], references: [id], onDelete: Restrict)
+  fromClassId      String?
+  toClassId        String?
+  fromSemester     Int?
+  toSemester       Int?
+  promotionType    PromotionType  @default(STANDARD_NEXT_SEMESTER)
+  promotedById     String
+  promotedBy       User           @relation("PromotionPerformedBy", fields: [promotedById], references: [id], onDelete: Restrict)
+  note             String?
+  promotedAt       DateTime       @default(now())
+
+  @@index([studentProfileId, promotedAt])
+  @@index([fromSectionId, toSectionId])
+  @@index([fromClassId, toClassId])
+  @@index([promotedById])
+}
+
+model StudentTeam {
+  id          String            @id @default(cuid())
+  sectionId   String
+  section     Section           @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  name        String
+  description String?
+  status      StudentTeamStatus @default(ACTIVE)
+  createdById String
+  createdBy   User              @relation("StudentTeamCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  members     StudentTeamMember[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@unique([sectionId, name])
+  @@index([sectionId, status])
+  @@index([createdById])
+}
+
+model StudentTeamMember {
+  id               String                @id @default(cuid())
+  teamId           String
+  team             StudentTeam           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  studentProfileId String
+  studentProfile   StudentProfile        @relation(fields: [studentProfileId], references: [id], onDelete: Restrict)
+  role             StudentTeamMemberRole @default(MEMBER)
+  joinedAt         DateTime              @default(now())
+
+  @@unique([teamId, studentProfileId])
+  @@index([studentProfileId])
+}
+
+model Announcement {
+  id          String               @id @default(cuid())
+  title       String
+  body        String
+  audience    AnnouncementAudience @default(ALL)
+  status      AnnouncementStatus   @default(PUBLISHED)
+  priority    AnnouncementPriority @default(NORMAL)
+  pinned      Boolean              @default(false)
+  pinnedAt    DateTime?
+
+  /// Student / shared structural scope (campus → section). Null at every level = entire institution for student audience.
+  campusId    String?
+  campus      Campus?              @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  programId   String?
+  program     Program?             @relation(fields: [programId], references: [id], onDelete: Restrict)
+  branchId    String?
+  branch      Branch?              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  batchId     String?
+  batch       Batch?               @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  classId     String?
+  class       AcademicClass?       @relation(fields: [classId], references: [id], onDelete: Restrict)
+  sectionId   String?
+  section     Section?             @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+
+  /// When audience includes teachers: how teachers are targeted (independent of structural fields).
+  teacherScope      AnnouncementTeacherScope @default(NONE)
+  teacherCampusId   String?
+  teacherCampus     Campus?                  @relation("AnnouncementTeacherCampus", fields: [teacherCampusId], references: [id], onDelete: Restrict)
+  teacherProgramId  String?
+  teacherProgram    Program?               @relation("AnnouncementTeacherProgram", fields: [teacherProgramId], references: [id], onDelete: Restrict)
+  teacherBranchId   String?
+  teacherBranch     Branch?                  @relation("AnnouncementTeacherBranch", fields: [teacherBranchId], references: [id], onDelete: Restrict)
+
+  createdById String
+  createdBy   User                 @relation("AnnouncementCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  publishedAt DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+
+  attachments AnnouncementAttachment[]
+  reads       AnnouncementRead[]
+
+  @@index([audience, status])
+  @@index([campusId, status])
+  @@index([sectionId, status])
+  @@index([createdById])
+  @@index([status, pinned, publishedAt])
+  @@index([priority])
+}
+
+model AnnouncementAttachment {
+  id             String       @id @default(cuid())
+  announcementId String
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  originalName   String
+  mimeType       String
+  sizeBytes      Int
+  storageKey     String       @unique
+  createdAt      DateTime     @default(now())
+
+  @@index([announcementId])
+}
+
+model AnnouncementRead {
+  id             String       @id @default(cuid())
+  announcementId String
+  announcement   Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt         DateTime     @default(now())
+
+  @@unique([announcementId, userId])
+  @@index([userId])
+}
+
+model FeedbackForm {
+  id          String             @id @default(cuid())
+  title       String
+  description String
+  formType    FeedbackFormType
+  customType  String?
+  campusId    String?
+  campus      Campus?            @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  programId   String?
+  program     Program?           @relation(fields: [programId], references: [id], onDelete: Restrict)
+  branchId    String?
+  branch      Branch?            @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  batchId     String?
+  batch       Batch?             @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  classId     String?
+  class       AcademicClass?     @relation(fields: [classId], references: [id], onDelete: Restrict)
+  sectionId   String?
+  section     Section?           @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  startsAt    DateTime
+  endsAt      DateTime
+  anonymous   Boolean            @default(false)
+  allowMultiple Boolean          @default(false)
+  status      FeedbackFormStatus @default(DRAFT)
+  createdById String
+  createdBy   User               @relation("FeedbackFormCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  questions   FeedbackQuestion[]
+  submissions FeedbackSubmission[]
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([status, endsAt])
+  @@index([campusId, status])
+  @@index([sectionId, status])
+  @@index([createdById])
+}
+
+model FeedbackQuestion {
+  id        String               @id @default(cuid())
+  formId    String
+  form      FeedbackForm         @relation(fields: [formId], references: [id], onDelete: Cascade)
+  order     Int
+  type      FeedbackQuestionType
+  prompt    String
+  required  Boolean              @default(true)
+  options   Json?
+  answers   FeedbackAnswer[]
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  @@index([formId, order])
+}
+
+model FeedbackSubmission {
+  id               String           @id @default(cuid())
+  formId           String
+  form             FeedbackForm     @relation(fields: [formId], references: [id], onDelete: Cascade)
+  studentProfileId String
+  studentProfile   StudentProfile   @relation(fields: [studentProfileId], references: [id], onDelete: Cascade)
+  submittedAt      DateTime         @default(now())
+  answers          FeedbackAnswer[]
+
+  @@index([formId, submittedAt])
+  @@index([studentProfileId])
+}
+
+model FeedbackAnswer {
+  id           String             @id @default(cuid())
+  submissionId String
+  submission   FeedbackSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  questionId   String
+  question     FeedbackQuestion   @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  valueJson    Json
+
+  @@unique([submissionId, questionId])
+  @@index([questionId])
+}
+
+model AttendanceSession {
+  id             String            @id @default(cuid())
+  sessionKey     String            @unique
+  campusId       String
+  campus         Campus            @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  programId      String
+  program        Program           @relation(fields: [programId], references: [id], onDelete: Restrict)
+  branchId       String
+  branch         Branch            @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  batchId        String
+  batch          Batch             @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  classId        String
+  class          AcademicClass     @relation(fields: [classId], references: [id], onDelete: Restrict)
+  sectionId      String
+  section        Section           @relation(fields: [sectionId], references: [id], onDelete: Restrict)
+  subjectId      String?
+  subject        Subject?          @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  markedById     String
+  markedBy       User              @relation("AttendanceMarkedBy", fields: [markedById], references: [id], onDelete: Restrict)
+  correctionRequests AttendanceCorrectionRequest[]
+  attendanceDate DateTime
+  periodLabel    String            @default("DAY")
+  isLocked       Boolean           @default(false)
+  entries        AttendanceEntry[]
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@index([sectionId, attendanceDate])
+  @@index([subjectId, attendanceDate])
+  @@index([markedById, attendanceDate])
+}
+
+model AttendanceCorrectionRequest {
+  id            String                     @id @default(cuid())
+  sessionId     String
+  session       AttendanceSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  requestedById String
+  requestedBy   User                       @relation("AttendanceCorrectionRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  reason        String
+  entries       Json
+  status        AttendanceCorrectionStatus @default(PENDING)
+  reviewedAt    DateTime?
+  createdAt     DateTime                   @default(now())
+  updatedAt     DateTime                   @updatedAt
+
+  @@index([sessionId, status])
+  @@index([requestedById, status])
+}
+
+model AttendanceHoliday {
+  id          String   @id @default(cuid())
+  campusId    String
+  campus      Campus   @relation(fields: [campusId], references: [id], onDelete: Restrict)
+  holidayDate DateTime
+  title       String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([campusId, holidayDate])
+  @@index([holidayDate])
+}
+
+model AttendanceEntry {
+  id               String                @id @default(cuid())
+  sessionId        String
+  session          AttendanceSession     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  studentProfileId String
+  studentProfile   StudentProfile        @relation(fields: [studentProfileId], references: [id], onDelete: Restrict)
+  status           AttendanceEntryStatus
+  note             String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@unique([sessionId, studentProfileId])
+  @@index([studentProfileId, status])
 }
 
 model TeacherRoleAssignment {

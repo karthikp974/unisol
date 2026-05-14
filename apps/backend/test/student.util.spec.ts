@@ -1,12 +1,10 @@
 import { BadRequestException } from "@nestjs/common";
 import { describe, expect, it } from "vitest";
-import { assertSectionMatchesCampus, buildStudentFallbackEmail, normalizeAdmissionNo, normalizeRollNumber } from "../src/students/student.util";
+import { assertSectionMatchesCampus, buildStudentFallbackEmail, normalizeRollNumber } from "../src/students/student.util";
 
 describe("student utilities", () => {
-  it("normalizes roll number and admission number", () => {
+  it("normalizes roll number", () => {
     expect(normalizeRollNumber("  24 cs 001 ")).toBe("24CS001");
-    expect(normalizeAdmissionNo(" adm 123 ")).toBe("ADM123");
-    expect(normalizeAdmissionNo(" ")).toBeUndefined();
   });
 
   it("builds stable fallback email", () => {

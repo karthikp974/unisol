@@ -36,6 +36,7 @@ export type Branch = {
   programId: string;
   code: string;
   name: string;
+  durationYears?: number;
   status?: "ACTIVE" | "ARCHIVED";
   program?: Program;
 };

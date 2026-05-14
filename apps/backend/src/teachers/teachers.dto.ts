@@ -1,6 +1,6 @@
-import { TeacherRoleKind } from "@prisma/client";
+import { TeacherRoleKind, UserStatus } from "@prisma/client";
 import { Type } from "class-transformer";
-import { ArrayMinSize, IsArray, IsDateString, IsEmail, IsEnum, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from "class-validator";
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsDateString, IsEmail, IsEnum, IsOptional, IsString, MaxLength, MinLength, ValidateNested } from "class-validator";
 import { PaginationQueryDto } from "../common/pagination.dto";
 
 export class TeacherIdentityDto {
@@ -19,7 +19,7 @@ export class TeacherIdentityDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(30)
+  @MaxLength(20)
   phone?: string;
 
   @IsOptional()
@@ -32,7 +32,7 @@ export class TeacherIdentityDto {
   joinedOn?: string;
 
   @IsString()
-  @MinLength(8)
+  @MinLength(2)
   password!: string;
 }
 
@@ -46,11 +46,13 @@ export class TeacherAssignmentDto {
   @IsString()
   branchId!: string;
 
+  @IsOptional()
   @IsString()
-  batchId!: string;
+  batchId?: string;
 
+  @IsOptional()
   @IsString()
-  classId!: string;
+  classId?: string;
 
   @IsOptional()
   @IsString()
@@ -76,6 +78,56 @@ export class CreateTeacherDto {
   assignments!: TeacherAssignmentDto[];
 }
 
+export class UpdateTeacherDto {
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  fullName?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  designation?: string;
+
+  @IsOptional()
+  @IsDateString()
+  joinedOn?: string;
+}
+
+export class UpdateTeacherAssignmentsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => TeacherAssignmentDto)
+  assignments!: TeacherAssignmentDto[];
+}
+
+export class BulkCreateTeachersDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => CreateTeacherDto)
+  teachers!: CreateTeacherDto[];
+}
+
+export class ResetTeacherPasswordDto {
+  @IsString()
+  @MinLength(8)
+  password!: string;
+}
+
 export class TeacherListQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
@@ -84,4 +136,8 @@ export class TeacherListQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   role?: TeacherRoleKind;
+
+  @IsOptional()
+  @IsEnum(UserStatus)
+  status?: UserStatus;
 }

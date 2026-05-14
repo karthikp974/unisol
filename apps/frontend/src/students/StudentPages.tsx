@@ -1,0 +1,529 @@
+import { ArrowLeft, Bell, Search, Trash2 } from "lucide-react";
+import { FormEvent, InputHTMLAttributes, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../auth/auth-context";
+import { AdminWorkflowMenuButton, OptionActionButton } from "../shared/OptionPage";
+import { SearchableSelect } from "../shared/SearchableSelect";
+import { useToast } from "../shared/toast-context";
+import { AcademicClass, Batch, Branch, Campus, PaginatedResponse, Program, Section } from "../structure/structure-types";
+
+type StudentStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
+type StudentListItem = {
+  id: string;
+  identity: {
+    fullName: string;
+    email?: string | null;
+    phone?: string | null;
+    dateOfBirth?: string | null;
+    rollNumber: string;
+    status: StudentStatus;
+  };
+  structure: {
+    campus: Campus;
+    program: Program;
+    branch: Branch;
+    batch: Batch;
+    class: AcademicClass;
+    section: Section;
+  };
+};
+type StudentResponse = { student: StudentListItem };
+type StudentForm = {
+  fullName: string;
+  phone: string;
+  email: string;
+  dateOfBirth: string;
+  rollNumber: string;
+  password: string;
+  campusId: string;
+  programId: string;
+  branchId: string;
+  batchId: string;
+  semester: string;
+  classId: string;
+  sectionId: string;
+};
+
+const emptyForm = (): StudentForm => ({
+  fullName: "",
+  phone: "",
+  email: "",
+  dateOfBirth: "",
+  rollNumber: "",
+  password: "Student@123",
+  campusId: "",
+  programId: "",
+  branchId: "",
+  batchId: "",
+  semester: "",
+  classId: "",
+  sectionId: ""
+});
+
+export function StudentsHomePage() {
+  const navigate = useNavigate();
+  const data = useStudentData();
+  const { searchStudents } = data;
+  const [query, setQuery] = useState("");
+  const [submittedQuery, setSubmittedQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const pageSize = 5;
+
+  useEffect(() => {
+    void searchStudents(submittedQuery, undefined, page, pageSize);
+  }, [page, pageSize, searchStudents, submittedQuery]);
+
+  function search(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmittedQuery(query);
+    setPage(1);
+  }
+
+  return (
+    <StudentShell title="Students" variant="main">
+      <section className="db-section teacher-action-stack">
+        <h2>Student Records</h2>
+        <GlassButton onClick={() => navigate("/students/add-student")}>Add Student</GlassButton>
+        <GlassButton onClick={() => navigate("/students/modify-student")}>Modify Student</GlassButton>
+        <GlassButton tone="danger" onClick={() => navigate("/students/delete-student")}>Delete Student</GlassButton>
+        <GlassButton onClick={() => navigate("/students/history")}>History</GlassButton>
+      </section>
+      <section className="db-section">
+        <h2>{submittedQuery.trim() ? "Search Results" : "Recently Added Students"}</h2>
+        <form className="db-search-bar" onSubmit={search}>
+          <Search size={18} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search student name or roll number" />
+          <button>Search</button>
+        </form>
+        {data.students.length ? <StudentSuggestions students={data.students} onSelect={() => undefined} /> : <p className="db-empty">{submittedQuery.trim() ? "No students found." : "No students added yet."}</p>}
+        <PaginationControls page={page} pageSize={pageSize} total={data.total} onPage={setPage} />
+      </section>
+    </StudentShell>
+  );
+}
+
+export function AddStudentPage() {
+  const data = useStudentData();
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+  const [step, setStep] = useState(1);
+  const [form, setForm] = useState(emptyForm);
+  const [isSaving, setIsSaving] = useState(false);
+  const options = useStudentOptions(data, form);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const error = validateStudentForm(form);
+    if (error) {
+      showToast(error, "error");
+      setStep(error.includes("section") || error.includes("structure") ? 2 : 1);
+      return;
+    }
+    setIsSaving(true);
+    try {
+      await data.sendJson("/api/students", studentPayload(form));
+      showToast("Student created successfully");
+      void navigate("/students");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Unable to create student", "error");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <StudentShell title="Add Student">
+      <form className="teacher-flow" onSubmit={(event) => void submit(event)}>
+        <StudentStepper step={step} setStep={setStep} />
+        {step === 1 ? <StudentIdentityStep form={form} setForm={setForm} includePassword /> : null}
+        {step === 2 ? <StudentStructureStep data={data} form={form} options={options} setForm={setForm} /> : null}
+        <footer className="teacher-flow-footer">
+          <button type="button" className="teacher-secondary" disabled={step === 1} onClick={() => setStep(1)}>Back</button>
+          {step === 1 ? (
+            <button type="button" className="db-submit" onClick={() => setStep(2)}>Next</button>
+          ) : (
+            <button className="db-submit" disabled={isSaving}>{isSaving ? "Saving..." : "Submit Student"}</button>
+          )}
+        </footer>
+      </form>
+    </StudentShell>
+  );
+}
+
+export function ModifyStudentPage() {
+  return <StudentLookupPage mode="modify" />;
+}
+
+export function DeleteStudentPage() {
+  return <StudentLookupPage mode="delete" />;
+}
+
+function StudentLookupPage({ mode }: { mode: "modify" | "delete" }) {
+  const data = useStudentData();
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+  const [campusId, setCampusId] = useState("");
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<StudentListItem | null>(null);
+  const [form, setForm] = useState(emptyForm);
+  const [isSaving, setIsSaving] = useState(false);
+  const { searchStudents } = data;
+  const options = useStudentOptions(data, form);
+
+  useEffect(() => {
+    if (query.trim() && campusId) {
+      void searchStudents(query, campusId);
+    }
+  }, [campusId, query, searchStudents]);
+
+  async function selectStudent(student: StudentListItem) {
+    const detail = await data.studentDetails(student.id);
+    setSelected(detail);
+    setForm(formFromStudent(detail));
+  }
+
+  async function submitUpdate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selected) return;
+    const error = validateStudentForm(form, true);
+    if (error) {
+      showToast(error, "error");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const result = await data.sendJson<StudentResponse>(`/api/students/${selected.id}`, studentPayload(form, true), "PATCH");
+      setSelected(result.student);
+      setForm(formFromStudent(result.student));
+      showToast("Student updated successfully");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Unable to update student", "error");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function archiveStudent() {
+    if (!selected || !window.confirm("Archive this student? Existing attendance, fees, marks, and history remain in the database.")) return;
+    setIsSaving(true);
+    try {
+      await data.sendJson(`/api/students/${selected.id}`, {}, "DELETE");
+      showToast("Student archived successfully", "warning");
+      void navigate("/students");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Unable to archive student", "error");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <StudentShell title={mode === "modify" ? "Modify Student" : "Delete Student"}>
+      <section className="db-card db-form">
+        <Field label="Campus"><SearchableSelect value={campusId} options={data.campuses.map((item) => [item.id, item.code])} onChange={(value) => { setCampusId(value); setSelected(null); }} /></Field>
+        <SearchInput query={query} setQuery={setQuery} placeholder="Search student name or roll number" />
+        {data.students.length ? <StudentSuggestions students={data.students} onSelect={(student) => void selectStudent(student)} /> : null}
+      </section>
+
+      {selected && mode === "modify" ? (
+        <form className="db-card db-form student-edit-card" onSubmit={(event) => void submitUpdate(event)}>
+          <StudentProfileHeader student={selected} />
+          <StudentIdentityStep form={form} setForm={setForm} />
+          <StudentStructureStep data={data} form={form} options={options} setForm={setForm} />
+          <button className="db-submit" disabled={isSaving}>{isSaving ? "Saving..." : "Submit Changes"}</button>
+        </form>
+      ) : null}
+
+      {selected && mode === "delete" ? (
+        <section className="db-card db-form">
+          <div className="db-result-head">
+            <StudentProfileHeader student={selected} />
+            <button type="button" className="teacher-delete-button" disabled={isSaving} onClick={() => void archiveStudent()}><Trash2 size={18} /> {isSaving ? "Archiving..." : "Delete"}</button>
+          </div>
+          <StudentDetails student={selected} />
+        </section>
+      ) : null}
+    </StudentShell>
+  );
+}
+
+function StudentIdentityStep({ form, includePassword = false, setForm }: { form: StudentForm; includePassword?: boolean; setForm: (form: StudentForm) => void }) {
+  return (
+    <section className="db-card db-form teacher-step-card">
+      <div>
+        <h2>Student Details</h2>
+        <p>Name, contact details, date of birth, and roll number are validated before saving.</p>
+      </div>
+      <div className="teacher-form-grid">
+        <Field label="Name"><Input value={form.fullName} onChange={(fullName) => setForm({ ...form, fullName })} required /></Field>
+        <Field label="Phone Number"><Input value={form.phone} onChange={(phone) => setForm({ ...form, phone })} /></Field>
+        <Field label="Email"><Input type="email" value={form.email} onChange={(email) => setForm({ ...form, email })} required /></Field>
+        <Field label="Date of Birth"><Input type="date" value={form.dateOfBirth} onChange={(dateOfBirth) => setForm({ ...form, dateOfBirth })} /></Field>
+        <Field label="Roll Number"><Input value={form.rollNumber} onChange={(rollNumber) => setForm({ ...form, rollNumber })} required /></Field>
+        {includePassword ? <Field label="Temporary Password"><Input value={form.password} onChange={(password) => setForm({ ...form, password })} required /></Field> : null}
+      </div>
+    </section>
+  );
+}
+
+function StudentStructureStep({ data, form, options, setForm }: { data: StudentData; form: StudentForm; options: StudentOptions; setForm: (form: StudentForm) => void }) {
+  return (
+    <section className="db-card db-form teacher-step-card">
+      <div>
+        <h2>Academic Structure</h2>
+        <p>Each selection filters the next dropdown so invalid relationships are avoided before submit.</p>
+      </div>
+      <div className="teacher-form-grid">
+        <Field label="Campus"><SearchableSelect value={form.campusId} options={data.campuses.map((item) => [item.id, item.code])} onChange={(campusId) => setForm({ ...form, campusId, programId: "", branchId: "", batchId: "", semester: "", classId: "", sectionId: "" })} searchable={false} /></Field>
+        <Field label="Department"><SearchableSelect value={form.programId} options={options.programs.map((item) => [item.id, `${item.code} - ${item.name}`])} onChange={(programId) => setForm({ ...form, programId, branchId: "", batchId: "", semester: "", classId: "", sectionId: "" })} searchable={false} /></Field>
+        <Field label="Branch"><SearchableSelect value={form.branchId} options={options.branches.map((item) => [item.id, `${item.code} - ${item.name}`])} onChange={(branchId) => setForm({ ...form, branchId, batchId: "", semester: "", classId: "", sectionId: "" })} searchable={false} /></Field>
+        <Field label="Batch"><SearchableSelect value={form.batchId} options={options.batches.map((item) => [item.id, `${item.startYear}-${item.endYear}`])} onChange={(batchId) => setForm({ ...form, batchId, semester: "", classId: "", sectionId: "" })} searchable={false} /></Field>
+        <Field label="Semester"><SearchableSelect value={form.semester} options={options.semesters.map((item) => [String(item), `Semester ${item}`])} onChange={(semester) => setForm({ ...form, semester, classId: "", sectionId: "" })} searchable={false} /></Field>
+        <Field label="Class"><SearchableSelect value={form.classId} options={options.classes.map((item) => [item.id, item.label || `Semester ${item.semesterNumber}`])} onChange={(classId) => setForm({ ...form, classId, sectionId: "" })} searchable={false} /></Field>
+        <Field label="Section"><SearchableSelect value={form.sectionId} options={options.sections.map((item) => [item.id, item.name])} onChange={(sectionId) => setForm({ ...form, sectionId })} searchable={false} /></Field>
+      </div>
+    </section>
+  );
+}
+
+function StudentDetails({ student }: { student: StudentListItem }) {
+  return (
+    <div className="db-detail-grid">
+      <Info label="Name" value={student.identity.fullName} />
+      <Info label="Phone Number" value={student.identity.phone || "-"} />
+      <Info label="Email" value={student.identity.email || "-"} />
+      <Info label="Date of Birth" value={student.identity.dateOfBirth || "-"} />
+      <Info label="Roll Number" value={student.identity.rollNumber} />
+      <Info label="Campus" value={student.structure.campus.code} />
+      <Info label="Department" value={student.structure.program.code} />
+      <Info label="Branch" value={student.structure.branch.code} />
+      <Info label="Batch" value={`${student.structure.batch.startYear}-${student.structure.batch.endYear}`} />
+      <Info label="Semester" value={String(student.structure.class.semesterNumber)} />
+      <Info label="Class" value={student.structure.class.label || `Semester ${student.structure.class.semesterNumber}`} />
+      <Info label="Section" value={student.structure.section.name} />
+    </div>
+  );
+}
+
+function StudentProfileHeader({ student }: { student: StudentListItem }) {
+  return (
+    <div className="teacher-profile-head">
+      <div className="db-avatar">{initials(student.identity.fullName)}</div>
+      <div>
+        <h2>{student.identity.fullName}</h2>
+        <p>{student.identity.rollNumber} / {student.structure.campus.code}</p>
+      </div>
+    </div>
+  );
+}
+
+type StudentData = ReturnType<typeof useStudentData>;
+type StudentOptions = ReturnType<typeof useStudentOptions>;
+
+function useStudentData() {
+  const { authFetch } = useAuth();
+  const { showToast } = useToast();
+  const [students, setStudents] = useState<StudentListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [campuses, setCampuses] = useState<Campus[]>([]);
+  const [programs, setPrograms] = useState<Program[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [batches, setBatches] = useState<Batch[]>([]);
+  const [classes, setClasses] = useState<AcademicClass[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
+
+  const fetchJson = useCallback(async <T,>(path: string) => {
+    const response = await authFetch(path);
+    if (!response.ok) throw await responseError(response);
+    return (await response.json()) as T;
+  }, [authFetch]);
+
+  const sendJson = useCallback(async <T,>(path: string, body: unknown, method = "POST") => {
+    const response = await authFetch(path, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (!response.ok) throw await responseError(response);
+    return (await response.json().catch(() => ({}))) as T;
+  }, [authFetch]);
+
+  const loadCatalogs = useCallback(async () => {
+    const [campusPage, programPage, branchPage, batchPage, classPage, sectionPage] = await Promise.all([
+      fetchJson<PaginatedResponse<Campus>>("/api/campuses?pageSize=100"),
+      fetchJson<PaginatedResponse<Program>>("/api/core/programs?pageSize=100"),
+      fetchJson<PaginatedResponse<Branch>>("/api/core/branches?pageSize=100"),
+      fetchJson<PaginatedResponse<Batch>>("/api/core/batches?pageSize=100"),
+      fetchJson<PaginatedResponse<AcademicClass>>("/api/core/classes?pageSize=100"),
+      fetchJson<PaginatedResponse<Section>>("/api/core/sections?pageSize=100")
+    ]);
+    setCampuses(campusPage.items);
+    setPrograms(programPage.items);
+    setBranches(branchPage.items);
+    setBatches(batchPage.items);
+    setClasses(classPage.items);
+    setSections(sectionPage.items);
+  }, [fetchJson]);
+
+  const searchStudents = useCallback(async (query: string, campusId?: string, page = 1, pageSize = 10) => {
+    const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), search: query, status: "ACTIVE" });
+    if (campusId) params.set("campusId", campusId);
+    const result = await fetchJson<PaginatedResponse<StudentListItem>>(`/api/students/search?${params.toString()}`);
+    setStudents(result.items);
+    setTotal(result.total);
+  }, [fetchJson]);
+
+  const studentDetails = useCallback(async (id: string) => {
+    const response = await fetchJson<StudentResponse>(`/api/students/${id}`);
+    return response.student;
+  }, [fetchJson]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadCatalogs().catch((error) => showToast(error instanceof Error ? error.message : "Unable to load student options", "error"));
+  }, [loadCatalogs, showToast]);
+
+  useEffect(() => {
+    return () => {
+      setStudents([]);
+      setTotal(0);
+    };
+  }, []);
+
+  return { batches, branches, campuses, classes, programs, searchStudents, sections, sendJson, studentDetails, students, total };
+}
+
+function useStudentOptions(data: StudentData, form: StudentForm) {
+  return useMemo(() => {
+    const programs = data.programs.filter((item) => item.campusId === form.campusId);
+    const branches = data.branches.filter((item) => item.programId === form.programId);
+    const batches = data.batches.filter((item) => item.branchId === form.branchId);
+    const batchClasses = data.classes.filter((item) => item.batchId === form.batchId);
+    const semesters = [...new Set(batchClasses.map((item) => item.semesterNumber))].sort((a, b) => a - b);
+    const classes = batchClasses.filter((item) => !form.semester || item.semesterNumber === Number(form.semester));
+    const sections = data.sections.filter((item) => item.classId === form.classId);
+    return { programs, branches, batches, semesters, classes, sections };
+  }, [data.batches, data.branches, data.classes, data.programs, data.sections, form.batchId, form.branchId, form.campusId, form.classId, form.programId, form.semester]);
+}
+
+function StudentShell({ children, title, variant = "workflow" }: { children: ReactNode; title: string; variant?: "main" | "workflow" }) {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  return (
+    <main className="db-workflow min-h-screen">
+      <header className="db-workflow-header">
+        <div className="db-header-left">
+          {variant === "main" ? <AdminWorkflowMenuButton /> : <button type="button" className="db-icon-button" onClick={() => navigate(-1)} aria-label="Back"><ArrowLeft size={20} /></button>}
+          <h1>{title}</h1>
+        </div>
+        <div className="db-header-actions">
+          {variant === "main" ? (
+            <>
+              <button type="button" className="db-icon-button" aria-label="Notifications"><Bell size={18} /></button>
+            </>
+          ) : null}
+          <div className="db-avatar">{initials(user?.fullName ?? "Admin")}</div>
+        </div>
+      </header>
+      <div className="db-workflow-body">{children}</div>
+    </main>
+  );
+}
+
+function StudentStepper({ setStep, step }: { step: number; setStep: (step: number) => void }) {
+  return (
+    <div className="teacher-stepper">
+      {["Details", "Structure"].map((label, index) => {
+        const value = index + 1;
+        return <button key={label} type="button" className={step === value ? "active" : ""} onClick={() => setStep(value)}><span>{value}</span>{label}</button>;
+      })}
+    </div>
+  );
+}
+
+function StudentSuggestions({ onSelect, students }: { students: StudentListItem[]; onSelect: (student: StudentListItem) => void }) {
+  return (
+    <div className="db-suggestions">
+      {students.map((student) => (
+        <button key={student.id} type="button" onClick={() => onSelect(student)}>
+          <strong>{student.identity.fullName}</strong>
+          <span>{student.identity.rollNumber}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SearchInput({ placeholder, query, setQuery }: { placeholder: string; query: string; setQuery: (value: string) => void }) {
+  return <div className="db-search-bar"><Search size={18} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={placeholder} /></div>;
+}
+
+function PaginationControls({ onPage, page, pageSize, total }: { onPage: (page: number) => void; page: number; pageSize: number; total: number }) {
+  const canGoNext = page * pageSize < total;
+  if (total <= pageSize && page === 1) return null;
+  return (
+    <div className="db-history-pagination">
+      <button type="button" disabled={page <= 1} onClick={() => onPage(Math.max(1, page - 1))}>Previous</button>
+      <span>Page {page}</span>
+      <button type="button" disabled={!canGoNext} onClick={() => onPage(page + 1)}>Next</button>
+    </div>
+  );
+}
+
+function GlassButton({ children, onClick, tone = "default" }: { children: ReactNode; onClick: () => void; tone?: "default" | "danger" }) {
+  return <OptionActionButton tone={tone} onClick={onClick}>{children}</OptionActionButton>;
+}
+function Field({ children, label }: { children: ReactNode; label: string }) { return <label className="db-field"><span>{label}</span>{children}</label>; }
+function Input({ onChange, ...props }: Omit<InputHTMLAttributes<HTMLInputElement>, "onChange"> & { onChange: (value: string) => void }) { return <input className="db-input" {...props} onChange={(event) => onChange(event.target.value)} />; }
+function Info({ label, value }: { label: string; value: string }) { return <div className="db-info"><span>{label}</span><strong>{value}</strong></div>; }
+
+function formFromStudent(student: StudentListItem): StudentForm {
+  return {
+    ...emptyForm(),
+    fullName: student.identity.fullName,
+    phone: student.identity.phone ?? "",
+    email: student.identity.email ?? "",
+    dateOfBirth: student.identity.dateOfBirth ?? "",
+    rollNumber: student.identity.rollNumber,
+    campusId: student.structure.campus.id,
+    programId: student.structure.program.id,
+    branchId: student.structure.branch.id,
+    batchId: student.structure.batch.id,
+    semester: String(student.structure.class.semesterNumber),
+    classId: student.structure.class.id,
+    sectionId: student.structure.section.id
+  };
+}
+
+function studentPayload(form: StudentForm, update = false) {
+  return {
+    fullName: form.fullName,
+    phone: form.phone || undefined,
+    email: form.email || undefined,
+    dateOfBirth: form.dateOfBirth || undefined,
+    rollNumber: form.rollNumber,
+    campusId: form.campusId,
+    programId: form.programId,
+    branchId: form.branchId,
+    batchId: form.batchId,
+    semester: Number(form.semester),
+    classId: form.classId,
+    sectionId: form.sectionId,
+    ...(update ? {} : { password: form.password })
+  };
+}
+
+function validateStudentForm(form: StudentForm, update = false) {
+  if (!form.fullName.trim()) return "Student name is required.";
+  if (!form.email.trim()) return "Student email is required.";
+  if (!form.rollNumber.trim()) return "Roll number is required.";
+  if (!update && !form.password.trim()) return "Temporary password is required.";
+  if (!form.campusId || !form.programId || !form.branchId || !form.batchId || !form.semester || !form.classId || !form.sectionId) return "Complete student academic structure.";
+  return "";
+}
+
+function initials(name: string) {
+  return name.split(" ").filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "U";
+}
+
+async function responseError(response: Response) {
+  const payload = (await response.json().catch(() => null)) as { message?: string | string[] } | null;
+  const message = Array.isArray(payload?.message) ? payload.message.join(", ") : payload?.message;
+  return new Error(message || "Request failed.");
+}

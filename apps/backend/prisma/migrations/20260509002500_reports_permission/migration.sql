@@ -1,0 +1,1 @@
+ALTER TYPE "PermissionAction" ADD VALUE 'VIEW_REPORTS';

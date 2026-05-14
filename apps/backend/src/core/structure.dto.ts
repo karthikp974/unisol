@@ -1,6 +1,6 @@
 import { ProgramDurationUnit } from "@prisma/client";
 import { Type } from "class-transformer";
-import { ArrayMaxSize, IsArray, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from "class-validator";
+import { ArrayMaxSize, IsArray, IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 import { PaginationQueryDto } from "../common/pagination.dto";
 
 export class CreateCampusDto {
@@ -108,6 +108,13 @@ export class CreateBranchDto {
   @MinLength(2)
   @MaxLength(120)
   name!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  durationYears?: number;
 }
 
 export class UpdateBranchDto {
@@ -122,6 +129,13 @@ export class UpdateBranchDto {
   @MinLength(2)
   @MaxLength(120)
   name?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  durationYears?: number;
 }
 
 export class CreateBatchDto {

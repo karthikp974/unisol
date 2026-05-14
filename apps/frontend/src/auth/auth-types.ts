@@ -12,6 +12,14 @@ export type AuthUser = {
   assignments: {
     id: string;
     role: "STPO" | "CTPO" | "HTPO";
+    campusGroupId?: string | null;
+    campusId?: string | null;
+    programId?: string | null;
+    branchId?: string | null;
+    batchId?: string | null;
+    classId?: string | null;
+    sectionId?: string | null;
+    subjectId?: string | null;
     permissions: string[];
   }[];
 };

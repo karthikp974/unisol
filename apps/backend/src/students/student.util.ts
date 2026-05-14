@@ -4,11 +4,6 @@ export function normalizeRollNumber(value: string) {
   return value.trim().toUpperCase().replace(/\s+/g, "");
 }
 
-export function normalizeAdmissionNo(value?: string) {
-  const normalized = value?.trim().toUpperCase().replace(/\s+/g, "");
-  return normalized || undefined;
-}
-
 export function buildStudentFallbackEmail(rollNumber: string) {
   return `${normalizeRollNumber(rollNumber).toLowerCase()}@students.local`;
 }

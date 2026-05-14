@@ -1,6 +1,8 @@
-import { Database, GraduationCap, LayoutDashboard, School, UserRoundCog } from "lucide-react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Bell, Database, GraduationCap, LayoutDashboard, Menu, School, UserRoundCog, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/auth-context";
+import { AdminMenuContent } from "./AdminMenu";
 
 const navItems = [
   { to: "/admin", label: "Admin Portal", icon: LayoutDashboard },
@@ -9,9 +11,32 @@ const navItems = [
   { to: "/database", label: "DB Portal", icon: Database }
 ];
 
+const moduleTitles: Record<string, string> = {
+  announcements: "Announcements",
+  applications: "Applications",
+  batches: "Batches",
+  classes: "Classes",
+  dashboard: "Dashboard",
+  "department-branch": "Department & Branch",
+  finance: "Finance",
+  "fee-structure": "Fee Structure",
+  payments: "Payments",
+  feedback: "Feedback",
+  promotion: "Promotion",
+  reports: "Reports",
+  sections: "Sections",
+  students: "Students",
+  subjects: "Subjects",
+  syllabus: "Syllabus",
+  teachers: "Teachers"
+};
+
 export function Shell() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const visibleNavItems = navItems.filter((item) => {
     if (!user) {
       return false;
@@ -27,50 +52,156 @@ export function Shell() {
 
     return item.to === "/student";
   });
+  const initials = user?.fullName
+    ? user.fullName
+        .split(" ")
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0]?.toUpperCase())
+        .join("")
+    : "U";
+
+  useEffect(() => {
+    document.documentElement.classList.remove("dark");
+    localStorage.removeItem("erp.theme");
+  }, []);
 
   async function handleLogout() {
     await logout();
     void navigate("/login", { replace: true });
   }
 
-  return (
-    <div className="min-h-screen bg-slate-50 text-slate-950">
-      <aside className="fixed inset-y-0 left-0 hidden w-72 border-r bg-white p-5 lg:block">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="rounded-2xl bg-blue-600 p-3 text-white">
-            <School size={24} />
-          </div>
-          <div>
-            <p className="text-lg font-bold">College ERP</p>
-            <p className="text-xs text-slate-500">{user ? `${user.fullName} (${user.type})` : "Secure portal"}</p>
-          </div>
+  const isAdmin = user?.type === "ADMIN";
+  const activeModule = new URLSearchParams(location.search).get("module") ?? "";
+  const pageTitle =
+    location.pathname === "/admin"
+      ? "Dashboard"
+      : location.pathname === "/admin/modules"
+        ? moduleTitles[activeModule] ?? "Management"
+        : location.pathname === "/database"
+          ? "Database"
+          : location.pathname === "/teacher"
+            ? "Teacher Portal"
+            : location.pathname.startsWith("/student/feedback")
+              ? "Feedback"
+              : location.pathname === "/student"
+                ? "Student Portal"
+                : location.pathname.startsWith("/feedback")
+                  ? "Feedback"
+                  : "ERP Control Center";
+  const sidebar = isAdmin ? (
+    <AdminMenuContent
+      onClose={() => {
+        setIsSidebarCollapsed(true);
+        setIsMenuOpen(false);
+      }}
+      onAfterNavigate={() => setIsMenuOpen(false)}
+      onSignOut={handleLogout}
+    />
+  ) : (
+    <div className="erp-sidebar-content flex h-full flex-col">
+      <div className="erp-brand">
+        <div>
+          <p className="erp-brand-title">CampusERP</p>
+          <p className="erp-brand-subtitle">College management system</p>
         </div>
-        <nav className="space-y-2">
-          {visibleNavItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium ${
-                  isActive ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-100"
-                }`
-              }
-            >
-              <item.icon size={18} />
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
         <button
           type="button"
-          onClick={() => void handleLogout()}
-          className="mt-8 w-full rounded-xl border px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+          className="erp-sidebar-close"
+          onClick={() => {
+            setIsSidebarCollapsed(true);
+            setIsMenuOpen(false);
+          }}
+          aria-label="Close menu"
         >
-          Logout
+          <X size={18} />
         </button>
+      </div>
+      <div className="mb-6 flex items-center gap-3 rounded-2xl bg-[#004B8D] p-3">
+        <div className="rounded-xl bg-white/15 p-2 text-white shadow-sm">
+          <School size={20} />
+        </div>
+        <div>
+          <p className="text-sm font-bold text-white">College ERP</p>
+          <p className="text-[11px] text-slate-400">{user ? `${user.fullName} (${user.type})` : "Secure portal"}</p>
+        </div>
+      </div>
+      <nav className="space-y-2">
+        {visibleNavItems.map((item) => (
+          <NavLink
+            key={item.to}
+            to={item.to}
+            onClick={() => setIsMenuOpen(false)}
+            className={({ isActive }) =>
+              `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition ${
+                isActive ? "bg-[#004B8D] text-white shadow-lg shadow-slate-950/20" : "text-slate-300 hover:bg-slate-800 hover:text-white"
+              }`
+            }
+          >
+            <item.icon size={17} />
+            {item.label}
+          </NavLink>
+        ))}
+      </nav>
+      <button type="button" onClick={() => void handleLogout()} className="erp-signout">
+        Sign out
+      </button>
+    </div>
+  );
+
+  return (
+    <div className={`erp-shell min-h-screen bg-[#f3f6fb] text-slate-950 transition-colors ${isSidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+      {!isSidebarCollapsed ? (
+      <aside className="erp-sidebar fixed inset-y-0 left-0 hidden overflow-y-auto bg-[#1c2737] p-3 shadow-xl lg:block">
+        {sidebar}
       </aside>
-      <main className="lg:pl-72">
-        <div className="mx-auto max-w-7xl p-5 sm:p-8">
+      ) : null}
+      {isMenuOpen ? (
+        <div className="erp-mobile-overlay fixed inset-0 z-40 h-screen bg-slate-950/40 lg:hidden" onClick={() => setIsMenuOpen(false)}>
+          <aside
+            className="erp-mobile-drawer fixed inset-y-0 left-0 h-screen overflow-y-auto bg-white shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {sidebar}
+          </aside>
+        </div>
+      ) : null}
+      <main className="erp-main">
+        <header className="erp-topbar sticky top-0 z-30 border-b border-slate-200 bg-white/95">
+          <div className="erp-topbar-inner flex items-center justify-between gap-3">
+            <div className="erp-app-header-left">
+              <button
+                type="button"
+                className="erp-menu-toggle"
+                onClick={() => {
+                  if (window.matchMedia("(min-width: 768px)").matches) {
+                    setIsSidebarCollapsed(false);
+                  } else {
+                    setIsMenuOpen(true);
+                  }
+                }}
+                aria-label="Open menu"
+              >
+                <Menu size={20} />
+              </button>
+              <img className="erp-header-logo" src="/kiet-logo.png" alt="KIET Group of Institutions" />
+              <div className="erp-header-copy">
+                <p className="erp-header-title">KIET ERP</p>
+                <p className="erp-header-subtitle">Group of Institutions</p>
+              </div>
+              {location.pathname !== "/admin" ? <span className="erp-page-pill">{pageTitle}</span> : null}
+            </div>
+            <div className="erp-topbar-actions">
+              <button type="button" className="erp-icon-button" aria-label="Notifications">
+                <Bell size={20} />
+              </button>
+              <div className="erp-top-avatar" aria-label="Profile">
+                {initials}
+              </div>
+            </div>
+          </div>
+        </header>
+        <div className="erp-content p-3 sm:p-4">
           <Outlet />
         </div>
       </main>

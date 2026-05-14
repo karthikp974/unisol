@@ -24,12 +24,14 @@ export class PermissionGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<{
       user: AuthUser;
       query: ScopeRef;
-      body: { scope?: ScopeRef };
+      body: ScopeRef & { scope?: ScopeRef };
     }>();
+    this.applyImplicitCampusScope(request);
 
+    const scope = request.body?.scope ?? (this.hasScopeFields(request.body) ? request.body : request.query);
     const decision = this.permissions.can(request.user, {
       action: metadata.action,
-      scope: request.body?.scope ?? request.query
+      scope
     });
 
     if (!decision.allowed) {
@@ -37,5 +39,30 @@ export class PermissionGuard implements CanActivate {
     }
 
     return true;
+  }
+
+  private applyImplicitCampusScope(request: { user: AuthUser; query: ScopeRef }) {
+    if (!request.query) {
+      request.query = {};
+    }
+    if (request.user.campusId && !request.query.campusId) {
+      request.query.campusId = request.user.campusId;
+    }
+    if (request.user.campusGroupId && !request.query.campusGroupId) {
+      request.query.campusGroupId = request.user.campusGroupId;
+    }
+  }
+
+  private hasScopeFields(scope?: ScopeRef): boolean {
+    return Boolean(
+      scope?.campusGroupId ||
+        scope?.campusId ||
+        scope?.programId ||
+        scope?.branchId ||
+        scope?.batchId ||
+        scope?.classId ||
+        scope?.sectionId ||
+        scope?.subjectId
+    );
   }
 }

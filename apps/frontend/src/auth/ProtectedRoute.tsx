@@ -1,4 +1,5 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { ErpLoader } from "../shared/ErpLoader";
 import { useAuth } from "./auth-context";
 import { UserType } from "./auth-types";
 
@@ -7,13 +8,7 @@ export function ProtectedRoute({ allowedTypes }: { allowedTypes: UserType[] }) {
   const location = useLocation();
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50">
-        <div className="rounded-2xl border bg-white p-6 text-sm font-medium text-slate-600 shadow-sm">
-          Checking secure session...
-        </div>
-      </div>
-    );
+    return <ErpLoader fullScreen />;
   }
 
   if (!user) {

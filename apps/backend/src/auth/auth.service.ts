@@ -1,16 +1,19 @@
 import { Injectable, UnauthorizedException } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
-import { AuthSessionStatus, User, UserStatus } from "@prisma/client";
+import { AuthSessionStatus, PasswordResetTokenStatus, User, UserStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { createHash, randomBytes } from "crypto";
 import { PrismaService } from "../prisma/prisma.service";
 import { AuthUser, JwtAccessPayload } from "./auth.types";
 import { LoginDto } from "./login.dto";
+import { ForgotPasswordDto, ResetPasswordDto } from "./password-recovery.dto";
 import { RefreshTokenDto } from "./refresh-token.dto";
 import { RequestContext } from "./request-context";
 
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const REFRESH_TOKEN_TTL_DAYS = 30;
+const PASSWORD_RESET_TTL_MINUTES = 15;
+const PASSWORD_RESET_GENERIC_MESSAGE = "If the identifier exists, password reset instructions have been prepared.";
 
 @Injectable()
 export class AuthService {
@@ -151,6 +154,79 @@ export class AuthService {
     return { ok: true };
   }
 
+  async forgotPassword(dto: ForgotPasswordDto) {
+    const user = await this.findUserByIdentifier(dto.identifier);
+
+    if (!user || user.status !== UserStatus.ACTIVE) {
+      return { ok: true, message: PASSWORD_RESET_GENERIC_MESSAGE };
+    }
+
+    const resetToken = randomBytes(48).toString("base64url");
+    const tokenHash = this.hashToken(resetToken);
+    const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000);
+
+    await this.prisma.passwordResetToken.updateMany({
+      where: { userId: user.id, status: PasswordResetTokenStatus.ACTIVE },
+      data: { status: PasswordResetTokenStatus.EXPIRED }
+    });
+
+    await this.prisma.passwordResetToken.create({
+      data: { userId: user.id, tokenHash, expiresAt }
+    });
+
+    const response: { ok: true; message: string; devResetToken?: string } = {
+      ok: true,
+      message: PASSWORD_RESET_GENERIC_MESSAGE
+    };
+
+    if (process.env.NODE_ENV !== "production") {
+      response.devResetToken = resetToken;
+    }
+
+    return response;
+  }
+
+  async resetPassword(dto: ResetPasswordDto) {
+    const tokenHash = this.hashToken(dto.token);
+    const resetToken = await this.prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
+      include: { user: true }
+    });
+
+    if (
+      !resetToken ||
+      resetToken.status !== PasswordResetTokenStatus.ACTIVE ||
+      resetToken.expiresAt <= new Date() ||
+      resetToken.user.status !== UserStatus.ACTIVE
+    ) {
+      throw new UnauthorizedException("Password reset token is invalid or expired.");
+    }
+
+    const passwordHash = await bcrypt.hash(dto.newPassword, 12);
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({ where: { id: resetToken.userId }, data: { passwordHash } }),
+      this.prisma.passwordResetToken.update({
+        where: { id: resetToken.id },
+        data: { status: PasswordResetTokenStatus.USED, usedAt: new Date() }
+      }),
+      this.prisma.authSession.updateMany({
+        where: { userId: resetToken.userId, status: AuthSessionStatus.ACTIVE },
+        data: { status: AuthSessionStatus.REVOKED, revokedAt: new Date() }
+      }),
+      this.prisma.auditLog.create({
+        data: {
+          userId: resetToken.userId,
+          action: "RESET_PASSWORD",
+          entity: "User",
+          entityId: resetToken.userId
+        }
+      })
+    ]);
+
+    return { ok: true, message: "Password updated. Please sign in again." };
+  }
+
   private async findUserByIdentifier(identifier: string) {
     const normalized = identifier.trim();
     const normalizedLower = normalized.toLowerCase();
@@ -164,15 +240,19 @@ export class AuthService {
       }
     } as const;
 
-    const userByUsername = await this.prisma.user.findFirst({
+    const userByEmailOrUsername = await this.prisma.user.findFirst({
       where: {
-        OR: [{ username: { equals: normalizedLower } }, { username: { equals: normalized } }]
+        OR: [
+          { email: { equals: normalized, mode: "insensitive" } },
+          { username: { equals: normalizedLower } },
+          { username: { equals: normalized } }
+        ]
       },
       include
     });
 
-    if (userByUsername) {
-      return userByUsername;
+    if (userByEmailOrUsername) {
+      return userByEmailOrUsername;
     }
 
     const teacher = await this.prisma.teacherProfile.findFirst({

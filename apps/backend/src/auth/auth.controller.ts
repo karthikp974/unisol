@@ -5,6 +5,7 @@ import { AuthService } from "./auth.service";
 import { AuthUser } from "./auth.types";
 import { JwtAuthGuard } from "./jwt-auth.guard";
 import { LoginDto } from "./login.dto";
+import { ForgotPasswordDto, ResetPasswordDto } from "./password-recovery.dto";
 import { RefreshTokenDto } from "./refresh-token.dto";
 import { getRequestContext } from "./request-context";
 
@@ -15,6 +16,16 @@ export class AuthController {
   @Post("login")
   login(@Body() dto: LoginDto, @Req() request: Request) {
     return this.auth.login(dto, getRequestContext(request));
+  }
+
+  @Post("forgot-password")
+  forgotPassword(@Body() dto: ForgotPasswordDto) {
+    return this.auth.forgotPassword(dto);
+  }
+
+  @Post("reset-password")
+  resetPassword(@Body() dto: ResetPasswordDto) {
+    return this.auth.resetPassword(dto);
   }
 
   @Post("refresh")

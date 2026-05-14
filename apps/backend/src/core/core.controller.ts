@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
 import { PermissionAction } from "@prisma/client";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { AuthUser } from "../auth/auth.types";
 import { PaginationQueryDto } from "../common/pagination.dto";
 import { PermissionGuard } from "../permissions/permission.guard";
 import { RequiresPermission } from "../permissions/requires-permission.decorator";
@@ -173,6 +174,12 @@ export class CoreController {
     return this.core.listSections(query);
   }
 
+  @Get("sections/:id/ecosystem")
+  @RequiresPermission(PermissionAction.MANAGE_STRUCTURE)
+  sectionEcosystem(@Param("id") id: string) {
+    return this.core.getSectionEcosystem(id);
+  }
+
   @Get("subjects")
   @RequiresPermission(PermissionAction.MANAGE_STRUCTURE)
   subjects(@Query() query: ScopedStructureQueryDto) {
@@ -213,5 +220,26 @@ export class CoreController {
   @RequiresPermission(PermissionAction.MANAGE_STRUCTURE)
   archiveSection(@Param("id") id: string) {
     return this.core.archiveSection(id);
+  }
+}
+
+@UseGuards(JwtAuthGuard)
+@Controller("campuses")
+export class CampusesController {
+  constructor(private readonly core: CoreService) {}
+
+  @Get()
+  list(@Query() query: PaginationQueryDto, @Req() request: { user: AuthUser }) {
+    return this.core.listCampuses(query, request.user);
+  }
+
+  @Get("search")
+  search(@Query() query: PaginationQueryDto, @Req() request: { user: AuthUser }) {
+    return this.core.listCampuses(query, request.user);
+  }
+
+  @Get(":id")
+  get(@Param("id") id: string, @Req() request: { user: AuthUser }) {
+    return this.core.getCampus(id, request.user);
   }
 }

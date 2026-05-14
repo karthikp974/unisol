@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma, StructureStatus } from "@prisma/client";
+import { AnnouncementStatus, Prisma, StructureStatus, TimetableSlotStatus, UserStatus } from "@prisma/client";
 import { PaginationQueryDto, toPagination } from "../common/pagination.dto";
+import { AuthUser } from "../auth/auth.types";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   CreateBatchDto,
@@ -60,10 +61,171 @@ export class CoreService {
     };
   }
 
-  async listCampuses(query: PaginationQueryDto) {
+  async getSectionEcosystem(id: string) {
+    const section = await this.prisma.section.findFirst({
+      where: { id, status: StructureStatus.ACTIVE, isArchived: false },
+      include: {
+        class: {
+          include: {
+            branch: {
+              include: {
+                program: { include: { campus: true } },
+                roleAssignments: {
+                  where: { isActive: true },
+                  include: { teacherProfile: { include: { user: true } }, branch: true, class: true, section: true, subject: true }
+                }
+              }
+            },
+            batch: true,
+            roleAssignments: {
+              where: { isActive: true },
+              include: { teacherProfile: { include: { user: true } }, branch: true, class: true, section: true, subject: true }
+            }
+          }
+        },
+        students: {
+          where: { currentStatus: UserStatus.ACTIVE, isArchived: false },
+          include: { user: true },
+          orderBy: { rollNumber: "asc" }
+        },
+        subjectAssignments: {
+          where: { isActive: true, subject: { status: StructureStatus.ACTIVE, isArchived: false } },
+          include: { subject: { include: { syllabi: { where: { isArchived: false }, include: { units: { where: { isArchived: false }, orderBy: { unitOrder: "asc" } } } } } } },
+          orderBy: { subject: { code: "asc" } }
+        },
+        roleAssignments: {
+          where: { isActive: true },
+          include: { teacherProfile: { include: { user: true } }, branch: true, class: true, section: true, subject: true }
+        },
+        timetableSlots: {
+          where: { status: TimetableSlotStatus.ACTIVE },
+          include: { subject: true, teacherProfile: { include: { user: true } } },
+          orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }]
+        },
+        feeStructures: {
+          where: { isActive: true, isArchived: false },
+          include: { feeHead: true, assignments: true },
+          orderBy: { createdAt: "desc" }
+        },
+        announcements: {
+          where: { status: AnnouncementStatus.PUBLISHED },
+          orderBy: { createdAt: "desc" },
+          take: 20
+        }
+      }
+    });
+    if (!section) throw new NotFoundException("Section not found.");
+
+    const cls = section.class;
+    const fallbackSubjects = section.subjectAssignments.length
+      ? []
+      : await this.prisma.subject.findMany({
+          where: {
+            branchId: cls.branchId,
+            semesterNumber: cls.semesterNumber,
+            status: StructureStatus.ACTIVE,
+            isArchived: false,
+            OR: [{ batchId: cls.batchId }, { batchId: null }]
+          },
+          include: { syllabi: { where: { isArchived: false }, include: { units: { where: { isArchived: false }, orderBy: { unitOrder: "asc" } } } } },
+          orderBy: { code: "asc" }
+        });
+    const subjects = section.subjectAssignments.length ? section.subjectAssignments.map((item) => item.subject) : fallbackSubjects;
+    const scopedAssignments = [
+      ...section.roleAssignments,
+      ...section.class.roleAssignments.filter((assignment) => assignment.role === "HTPO" && !assignment.sectionId),
+      ...section.class.branch.roleAssignments.filter((assignment) => assignment.role === "HTPO" && !assignment.classId && !assignment.sectionId)
+    ];
+    const roleGroups = scopedAssignments.reduce<Record<string, { teacherId: string; name: string; employeeCode: string; scope: string; branch?: { id: string; code: string; name: string } | null; class?: { id: string; label: string; semesterNumber: number } | null; section?: { id: string; name: string } | null; subject?: string | null }[]>>((acc, assignment) => {
+      acc[assignment.role] = acc[assignment.role] ?? [];
+      acc[assignment.role].push({
+        teacherId: assignment.teacherProfileId,
+        name: assignment.teacherProfile.user.fullName,
+        employeeCode: assignment.teacherProfile.employeeCode,
+        scope: [assignment.branch?.code, assignment.class?.label, assignment.section?.name].filter(Boolean).join(" / ") || "General",
+        branch: assignment.branch ? { id: assignment.branch.id, code: assignment.branch.code, name: assignment.branch.name } : null,
+        class: assignment.class ? { id: assignment.class.id, label: assignment.class.label, semesterNumber: assignment.class.semesterNumber } : null,
+        section: assignment.section ? { id: assignment.section.id, name: assignment.section.name } : null,
+        subject: assignment.subject?.code ?? null
+      });
+      return acc;
+    }, {});
+
+    return {
+      section: {
+        id: section.id,
+        currentSectionId: section.id,
+        name: section.name,
+        code: section.code,
+        semester: cls.semesterNumber,
+        class: { id: cls.id, label: cls.label, code: cls.code, semesterNumber: cls.semesterNumber },
+        batch: cls.batch ? { id: cls.batch.id, batchCode: cls.batch.batchCode, startYear: cls.batch.startYear, endYear: cls.batch.endYear } : null,
+        branch: { id: cls.branch.id, code: cls.branch.code, name: cls.branch.name },
+        department: { id: cls.branch.program.id, code: cls.branch.program.code, name: cls.branch.program.name },
+        campus: { id: cls.branch.program.campus.id, code: cls.branch.program.campus.code, name: cls.branch.program.campus.name }
+      },
+      students: section.students.map((student) => ({
+        id: student.id,
+        currentSectionId: section.id,
+        rollNumber: student.rollNumber,
+        fullName: student.user.fullName,
+        email: student.user.email.endsWith("@students.local") ? null : student.user.email,
+        phone: student.user.phone
+      })),
+      subjects: subjects.map((subject) => ({
+        id: subject.id,
+        code: subject.code,
+        name: subject.name,
+        semesterNumber: subject.semesterNumber,
+        syllabi: subject.syllabi.map((syllabus) => ({
+          id: syllabus.id,
+          units: syllabus.units.map((unit) => ({ id: unit.id, unitTitle: unit.unitTitle, unitOrder: unit.unitOrder }))
+        }))
+      })),
+      teachers: {
+        htpo: roleGroups.HTPO ?? [],
+        ctpo: roleGroups.CTPO ?? [],
+        stpo: roleGroups.STPO ?? []
+      },
+      timetable: section.timetableSlots.map((slot) => ({
+        id: slot.id,
+        dayOfWeek: slot.dayOfWeek,
+        startTime: slot.startTime,
+        endTime: slot.endTime,
+        room: slot.room,
+        subject: slot.subject ? { id: slot.subject.id, code: slot.subject.code, name: slot.subject.name } : null,
+        teacher: slot.teacherProfile ? { id: slot.teacherProfile.id, name: slot.teacherProfile.user.fullName } : null
+      })),
+      feeStructures: section.feeStructures.map((fee) => ({
+        id: fee.id,
+        feeName: fee.feeName ?? fee.feeHead.name,
+        amount: Number(fee.amount),
+        deadline: fee.dueDate?.toISOString().slice(0, 10) ?? null,
+        assignedStudents: fee.assignments.length
+      })),
+      announcements: section.announcements.map((announcement) => ({
+        id: announcement.id,
+        title: announcement.title,
+        body: announcement.body,
+        publishedAt: announcement.publishedAt
+      })),
+      attendanceScope: {
+        campusId: cls.branch.program.campusId,
+        programId: cls.branch.programId,
+        branchId: cls.branchId,
+        batchId: cls.batchId ?? undefined,
+        classId: cls.id,
+        sectionId: section.id
+      }
+    };
+  }
+
+  async listCampuses(query: PaginationQueryDto, user?: AuthUser) {
     const pagination = toPagination(query);
     const where: Prisma.CampusWhereInput = {
+      isActive: true,
       status: StructureStatus.ACTIVE,
+      ...this.campusScopeWhere(user),
       ...(query.search
         ? {
           OR: [
@@ -90,6 +252,15 @@ export class CoreService {
 
   async listCampusGroups() {
     return this.prisma.campusGroup.findMany({ orderBy: { name: "asc" } });
+  }
+
+  async getCampus(id: string, user?: AuthUser) {
+    const campus = await this.prisma.campus.findFirst({
+      where: { id, isActive: true, status: StructureStatus.ACTIVE, ...this.campusScopeWhere(user) },
+      include: { group: true }
+    });
+    if (!campus) throw new NotFoundException("Campus not found.");
+    return campus;
   }
 
   async createCampus(dto: CreateCampusDto) {
@@ -127,13 +298,14 @@ export class CoreService {
 
   async archiveCampus(id: string) {
     await this.ensureCampus(id);
-    return this.prisma.campus.update({ where: { id }, data: { status: StructureStatus.ARCHIVED } });
+    return this.prisma.campus.update({ where: { id }, data: { status: StructureStatus.ARCHIVED, isActive: false } });
   }
 
   async listPrograms(query: ScopedStructureQueryDto) {
     const pagination = toPagination(query);
     const where: Prisma.ProgramWhereInput = {
       status: StructureStatus.ACTIVE,
+      isArchived: false,
       campusId: query.campusId,
       campus: { status: StructureStatus.ACTIVE },
       ...(query.search
@@ -196,15 +368,20 @@ export class CoreService {
 
   async archiveProgram(id: string) {
     await this.ensureProgram(id);
-    return this.prisma.program.update({ where: { id }, data: { status: StructureStatus.ARCHIVED } });
+    const archivedAt = new Date();
+    return this.prisma.$transaction(async (tx) => {
+      await tx.branch.updateMany({ where: { programId: id }, data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt } });
+      return tx.program.update({ where: { id }, data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt } });
+    });
   }
 
   async listBranches(query: ScopedStructureQueryDto) {
     const pagination = toPagination(query);
     const where: Prisma.BranchWhereInput = {
       status: StructureStatus.ACTIVE,
+      isArchived: false,
       programId: query.programId,
-      program: { status: StructureStatus.ACTIVE, ...(query.campusId ? { campusId: query.campusId } : {}) },
+      program: { status: StructureStatus.ACTIVE, isArchived: false, ...(query.campusId ? { campusId: query.campusId } : {}) },
       ...(query.search
         ? {
             OR: [
@@ -230,13 +407,15 @@ export class CoreService {
   }
 
   async createBranch(dto: CreateBranchDto) {
-    await this.ensureProgram(dto.programId);
+    const program = await this.ensureProgram(dto.programId);
+    const durationYears = dto.durationYears ?? program.durationValue;
     return this.safeWrite(() =>
       this.prisma.branch.create({
         data: {
           programId: dto.programId,
           code: normalizeCode(dto.code),
-          name: normalizeName(dto.name)
+          name: normalizeName(dto.name),
+          durationYears
         },
         include: { program: { include: { campus: true } } }
       })
@@ -250,7 +429,8 @@ export class CoreService {
         where: { id },
         data: {
           code: dto.code ? normalizeCode(dto.code) : undefined,
-          name: dto.name ? normalizeName(dto.name) : undefined
+          name: dto.name ? normalizeName(dto.name) : undefined,
+          durationYears: dto.durationYears
         },
         include: { program: { include: { campus: true } } }
       })
@@ -259,13 +439,15 @@ export class CoreService {
 
   async archiveBranch(id: string) {
     await this.ensureBranch(id);
-    return this.prisma.branch.update({ where: { id }, data: { status: StructureStatus.ARCHIVED } });
+    return this.prisma.branch.update({ where: { id }, data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt: new Date() } });
   }
 
   async listBatches(query: ScopedStructureQueryDto) {
     const pagination = toPagination(query);
     const where: Prisma.BatchWhereInput = {
       status: StructureStatus.ACTIVE,
+      isArchived: false,
+      NOT: { batchCode: { startsWith: "STRUCTURE_" } },
       branchId: query.branchId,
       branch: {
         status: StructureStatus.ACTIVE,
@@ -316,7 +498,7 @@ export class CoreService {
 
   async archiveBatch(id: string) {
     await this.ensureBatch(id);
-    return this.prisma.batch.update({ where: { id }, data: { status: StructureStatus.ARCHIVED } });
+    return this.prisma.batch.update({ where: { id }, data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt: new Date() } });
   }
 
   async generateBatchClasses(id: string, dto: GenerateBatchClassesDto) {
@@ -335,6 +517,7 @@ export class CoreService {
             label: classLabelForSemester(semesterNumber)
           },
           create: {
+            branchId: batch.branchId,
             batchId: id,
             yearNumber,
             semesterNumber,
@@ -347,6 +530,7 @@ export class CoreService {
             where: { classId_name: { classId: academicClass.id, name: sectionName } },
             update: { capacity: dto.sectionCapacity },
             create: {
+              campusId: batch.branch.program.campusId,
               classId: academicClass.id,
               name: sectionName,
               capacity: dto.sectionCapacity
@@ -368,6 +552,7 @@ export class CoreService {
     const pagination = toPagination(query);
     const where: Prisma.AcademicClassWhereInput = {
       status: StructureStatus.ACTIVE,
+      isArchived: false,
       batchId: query.batchId,
       batch: {
         status: StructureStatus.ACTIVE,
@@ -387,7 +572,7 @@ export class CoreService {
     const [items, total] = await Promise.all([
       this.prisma.academicClass.findMany({
         where,
-        include: { batch: { include: { branch: { include: { program: { include: { campus: true } } } } } } },
+        include: { branch: { include: { program: { include: { campus: true } } } }, batch: true },
         orderBy: [{ semesterNumber: "asc" }],
         skip: pagination.skip,
         take: pagination.take
@@ -405,12 +590,13 @@ export class CoreService {
     return this.safeWrite(() =>
       this.prisma.academicClass.create({
         data: {
+          branchId: batch.branchId,
           batchId: dto.batchId,
           yearNumber: dto.yearNumber,
           semesterNumber: dto.semesterNumber,
           label: normalizeName(dto.label)
         },
-        include: { batch: { include: { branch: { include: { program: { include: { campus: true } } } } } } }
+        include: { branch: { include: { program: { include: { campus: true } } } }, batch: true }
       })
     );
   }
@@ -419,7 +605,7 @@ export class CoreService {
     const academicClass = await this.ensureClassWithProgram(id);
     const yearNumber = dto.yearNumber ?? academicClass.yearNumber;
     const semesterNumber = dto.semesterNumber ?? academicClass.semesterNumber;
-    assertValidClassPlacement(yearNumber, semesterNumber, academicClass.batch.branch.program.semesters);
+    assertValidClassPlacement(yearNumber, semesterNumber, academicClass.branch.program.semesters);
 
     return this.safeWrite(() =>
       this.prisma.academicClass.update({
@@ -429,23 +615,29 @@ export class CoreService {
           semesterNumber: dto.semesterNumber,
           label: dto.label ? normalizeName(dto.label) : undefined
         },
-        include: { batch: { include: { branch: { include: { program: { include: { campus: true } } } } } } }
+        include: { branch: { include: { program: { include: { campus: true } } } }, batch: true }
       })
     );
   }
 
   async archiveClass(id: string) {
     await this.ensureClass(id);
-    return this.prisma.academicClass.update({ where: { id }, data: { status: StructureStatus.ARCHIVED } });
+    const archivedAt = new Date();
+    return this.prisma.$transaction(async (tx) => {
+      await tx.section.updateMany({ where: { classId: id }, data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt } });
+      return tx.academicClass.update({ where: { id }, data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt } });
+    });
   }
 
   async listSections(query: ScopedStructureQueryDto) {
     const pagination = toPagination(query);
     const where: Prisma.SectionWhereInput = {
       status: StructureStatus.ACTIVE,
+      isArchived: false,
       classId: query.classId,
       class: {
         status: StructureStatus.ACTIVE,
+        isArchived: false,
         ...(query.batchId ? { batchId: query.batchId } : {}),
         ...(query.branchId || query.programId || query.campusId
           ? {
@@ -472,7 +664,7 @@ export class CoreService {
       this.prisma.section.findMany({
         where,
         include: {
-          class: { include: { batch: { include: { branch: { include: { program: { include: { campus: true } } } } } } } }
+          class: { include: { branch: { include: { program: { include: { campus: true } } } }, batch: true } }
         },
         orderBy: { name: "asc" },
         skip: pagination.skip,
@@ -488,6 +680,7 @@ export class CoreService {
     const pagination = toPagination(query);
     const where: Prisma.SubjectWhereInput = {
       status: StructureStatus.ACTIVE,
+      isArchived: false,
       branchId: query.branchId,
       branch: { status: StructureStatus.ACTIVE },
       ...(query.search
@@ -551,20 +744,21 @@ export class CoreService {
 
   async archiveSubject(id: string) {
     await this.ensureSubjectWithProgram(id);
-    return this.prisma.subject.update({ where: { id }, data: { status: StructureStatus.ARCHIVED } });
+    return this.prisma.subject.update({ where: { id }, data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt: new Date() } });
   }
 
   async createSection(dto: CreateSectionDto) {
-    await this.ensureClass(dto.classId);
+    const academicClass = await this.ensureClassWithProgram(dto.classId);
     return this.safeWrite(() =>
       this.prisma.section.create({
         data: {
+          campusId: academicClass.branch.program.campusId,
           classId: dto.classId,
           name: normalizeCode(dto.name),
           capacity: dto.capacity
         },
         include: {
-          class: { include: { batch: { include: { branch: { include: { program: { include: { campus: true } } } } } } } }
+          class: { include: { branch: { include: { program: { include: { campus: true } } } }, batch: true } }
         }
       })
     );
@@ -580,7 +774,7 @@ export class CoreService {
           capacity: dto.capacity
         },
         include: {
-          class: { include: { batch: { include: { branch: { include: { program: { include: { campus: true } } } } } } } }
+          class: { include: { branch: { include: { program: { include: { campus: true } } } }, batch: true } }
         }
       })
     );
@@ -588,7 +782,7 @@ export class CoreService {
 
   async archiveSection(id: string) {
     await this.ensureSection(id);
-    return this.prisma.section.update({ where: { id }, data: { status: StructureStatus.ARCHIVED } });
+    return this.prisma.section.update({ where: { id }, data: { status: StructureStatus.ARCHIVED, isArchived: true, archivedAt: new Date() } });
   }
 
   private async ensureCampusGroup(id: string) {
@@ -598,9 +792,16 @@ export class CoreService {
   }
 
   private async ensureCampus(id: string) {
-    const campus = await this.prisma.campus.findUnique({ where: { id } });
+    const campus = await this.prisma.campus.findFirst({ where: { id, isActive: true, status: StructureStatus.ACTIVE } });
     if (!campus) throw new NotFoundException("Campus not found.");
     return campus;
+  }
+
+  private campusScopeWhere(user?: AuthUser): Prisma.CampusWhereInput {
+    if (!user) return {};
+    if (user.campusId) return { id: user.campusId };
+    if (user.campusGroupId) return { groupId: user.campusGroupId };
+    return {};
   }
 
   private async ensureProgram(id: string) {
@@ -648,7 +849,7 @@ export class CoreService {
   private async ensureClassWithProgram(id: string) {
     const academicClass = await this.prisma.academicClass.findUnique({
       where: { id },
-      include: { batch: { include: { branch: { include: { program: true } } } } }
+      include: { branch: { include: { program: true } }, batch: true }
     });
     if (!academicClass) throw new NotFoundException("Class not found.");
     return academicClass;

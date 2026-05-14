@@ -7,7 +7,13 @@ const DEFAULT_TEACHER_ROLE_ACTIONS: Record<TeacherRoleKind, PermissionAction[]> 
   STPO: [
     PermissionAction.VIEW_TEACHER_PORTAL,
     PermissionAction.VIEW_STUDENTS,
-    PermissionAction.VIEW_ATTENDANCE
+    PermissionAction.VIEW_ATTENDANCE,
+    PermissionAction.MARK_ATTENDANCE,
+    PermissionAction.VIEW_RESULTS,
+    PermissionAction.VIEW_ANNOUNCEMENTS,
+    PermissionAction.VIEW_APPLICATIONS,
+    PermissionAction.VIEW_REPORTS,
+    PermissionAction.VIEW_TEAMS
   ],
   CTPO: [
     PermissionAction.VIEW_TEACHER_PORTAL,
@@ -16,6 +22,13 @@ const DEFAULT_TEACHER_ROLE_ACTIONS: Record<TeacherRoleKind, PermissionAction[]> 
     PermissionAction.MARK_ATTENDANCE,
     PermissionAction.VIEW_FEES,
     PermissionAction.MARK_FEES,
+    PermissionAction.VIEW_RESULTS,
+    PermissionAction.VIEW_ANNOUNCEMENTS,
+    PermissionAction.VIEW_APPLICATIONS,
+    PermissionAction.MANAGE_APPLICATIONS,
+    PermissionAction.MANAGE_ANNOUNCEMENTS,
+    PermissionAction.VIEW_REPORTS,
+    PermissionAction.VIEW_TEAMS,
     PermissionAction.MANAGE_TEAMS
   ],
   HTPO: [
@@ -27,6 +40,13 @@ const DEFAULT_TEACHER_ROLE_ACTIONS: Record<TeacherRoleKind, PermissionAction[]> 
     PermissionAction.MARK_FEES,
     PermissionAction.MANAGE_TIMETABLE,
     PermissionAction.MANAGE_TEAMS,
+    PermissionAction.VIEW_TEAMS,
+    PermissionAction.VIEW_RESULTS,
+    PermissionAction.VIEW_ANNOUNCEMENTS,
+    PermissionAction.MANAGE_ANNOUNCEMENTS,
+    PermissionAction.VIEW_APPLICATIONS,
+    PermissionAction.MANAGE_APPLICATIONS,
+    PermissionAction.VIEW_REPORTS,
     PermissionAction.UPLOAD_RESULTS
   ]
 };
@@ -35,6 +55,9 @@ const DEFAULT_TEACHER_ROLE_ACTIONS: Record<TeacherRoleKind, PermissionAction[]> 
 export class PermissionsService {
   can(user: PermissionSubject, request: PermissionRequest): PermissionDecision {
     if (user.type === UserType.ADMIN) {
+      if (!this.campusBoundaryMatches(user, request)) {
+        return { allowed: false, reason: "Campus boundary mismatch." };
+      }
       return { allowed: true, reason: "Admin has full ERP control." };
     }
 
@@ -50,8 +73,19 @@ export class PermissionsService {
   }
 
   private canStudent(user: PermissionSubject, request: PermissionRequest): PermissionDecision {
-    if (request.action !== PermissionAction.VIEW_STUDENT_PORTAL) {
-      return { allowed: false, reason: "Students can only access their own student portal foundation." };
+    if (
+      !new Set<PermissionAction>([
+        PermissionAction.VIEW_STUDENT_PORTAL,
+        PermissionAction.VIEW_ATTENDANCE,
+        PermissionAction.VIEW_FEES,
+        PermissionAction.VIEW_RESULTS,
+        PermissionAction.VIEW_APPLICATIONS,
+        PermissionAction.VIEW_ANNOUNCEMENTS,
+        PermissionAction.VIEW_TEAMS,
+        PermissionAction.SUBMIT_FEEDBACK
+      ]).has(request.action)
+    ) {
+      return { allowed: false, reason: "Students can only access their own allowed student portal data." };
     }
 
     if (!this.campusBoundaryMatches(user, request)) {

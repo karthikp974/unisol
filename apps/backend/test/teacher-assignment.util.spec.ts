@@ -10,10 +10,16 @@ const base = {
   batchId: "batch",
   classId: "class"
 };
+const branchScope = {
+  campusId: "campus",
+  programId: "program",
+  branchId: "branch"
+};
 
 describe("teacher assignment rules", () => {
-  it("allows HTPO without section or subject", () => {
-    expect(() => validateAssignmentShape({ ...base, role: TeacherRoleKind.HTPO })).not.toThrow();
+  it("allows HTPO branch-level scope only", () => {
+    expect(() => validateAssignmentShape({ ...branchScope, role: TeacherRoleKind.HTPO })).not.toThrow();
+    expect(() => validateAssignmentShape({ ...base, role: TeacherRoleKind.HTPO })).toThrow(BadRequestException);
   });
 
   it("requires section for CTPO and STPO", () => {
@@ -31,8 +37,8 @@ describe("teacher assignment rules", () => {
   it("rejects duplicate assignment tuples", () => {
     expect(() =>
       assertNoDuplicateAssignments([
-        { ...base, role: TeacherRoleKind.HTPO },
-        { ...base, role: TeacherRoleKind.HTPO }
+        { ...branchScope, role: TeacherRoleKind.HTPO },
+        { ...branchScope, role: TeacherRoleKind.HTPO }
       ])
     ).toThrow(BadRequestException);
   });

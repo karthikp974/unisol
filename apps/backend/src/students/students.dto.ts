@@ -1,5 +1,6 @@
 import { UserStatus } from "@prisma/client";
-import { IsEmail, IsEnum, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import { Type } from "class-transformer";
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min, MinLength, ValidateNested } from "class-validator";
 import { PaginationQueryDto } from "../common/pagination.dto";
 
 export class CreateStudentDto {
@@ -7,11 +8,6 @@ export class CreateStudentDto {
   @MinLength(2)
   @MaxLength(50)
   rollNumber!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(60)
-  admissionNo?: string;
 
   @IsString()
   @MinLength(2)
@@ -27,6 +23,10 @@ export class CreateStudentDto {
   @MaxLength(30)
   phone?: string;
 
+  @IsOptional()
+  @IsDateString()
+  dateOfBirth?: string;
+
   @IsString()
   @MinLength(8)
   password!: string;
@@ -34,6 +34,27 @@ export class CreateStudentDto {
   @IsOptional()
   @IsString()
   campusId?: string;
+
+  @IsOptional()
+  @IsString()
+  programId?: string;
+
+  @IsOptional()
+  @IsString()
+  branchId?: string;
+
+  @IsOptional()
+  @IsString()
+  batchId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  semester?: number;
+
+  @IsOptional()
+  @IsString()
+  classId?: string;
 
   @IsString()
   sectionId!: string;
@@ -56,12 +77,62 @@ export class UpdateStudentDto {
   phone?: string;
 
   @IsOptional()
+  @IsDateString()
+  dateOfBirth?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(50)
+  rollNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  campusId?: string;
+
+  @IsOptional()
+  @IsString()
+  programId?: string;
+
+  @IsOptional()
+  @IsString()
+  branchId?: string;
+
+  @IsOptional()
+  @IsString()
+  batchId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  semester?: number;
+
+  @IsOptional()
+  @IsString()
+  classId?: string;
+
+  @IsOptional()
   @IsString()
   sectionId?: string;
 
   @IsOptional()
   @IsEnum(UserStatus)
   status?: UserStatus;
+}
+
+export class BulkCreateStudentsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => CreateStudentDto)
+  students!: CreateStudentDto[];
+}
+
+export class ResetStudentPasswordDto {
+  @IsString()
+  @MinLength(8)
+  password!: string;
 }
 
 export class StudentListQueryDto extends PaginationQueryDto {
@@ -76,4 +147,8 @@ export class StudentListQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   classId?: string;
+
+  @IsOptional()
+  @IsEnum(UserStatus)
+  status?: UserStatus;
 }
